@@ -1,6 +1,7 @@
 ﻿﻿# 이 PC에서 목록을 수집해 GitHub에 올립니다 (작업 스케줄러가 매일 실행).
 # GitHub Actions 는 데일리뷰·포블로그에 접속이 막혀 있어서, PC가 켜져 있는 날은 이 결과로 덮어씁니다.
 $ErrorActionPreference = "Continue"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Set-Location $PSScriptRoot
 $log = Join-Path $PSScriptRoot "data\sync.log"
 function Log($msg) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg" | Out-File -FilePath $log -Append -Encoding utf8 }

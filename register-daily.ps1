@@ -7,6 +7,6 @@ $dir = $PSScriptRoot
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$dir\sync-and-push.ps1`"" -WorkingDirectory $dir
 $trigger = New-ScheduledTaskTrigger -Daily -At $At
 # PC가 꺼져 있어 놓친 실행은 켜진 뒤 바로 실행
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings -Description "체험모아 캠페인 목록 매일 수집" -Force | Out-Null
 "등록했어요: 매일 $At 에 $dir\sync-and-push.ps1 실행 (수집 후 GitHub에 올림)"
