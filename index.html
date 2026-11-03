@@ -90,6 +90,7 @@ button { cursor: pointer; }
 .filters { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 80px); max-height: calc(100vh - 100px); overflow: auto; display: grid; gap: 20px; padding-bottom: 8px; scrollbar-width: thin; }
 .fgroup { display: grid; gap: 9px; }
 .fgroup > h3 { margin: 0; font: 600 12px var(--f-body); color: var(--muted); letter-spacing: .06em; display: flex; justify-content: space-between; align-items: baseline; }
+.h3-actions { display: inline-flex; gap: 10px; }
 .fgroup > h3 button { border: 0; background: none; color: var(--accent); font-size: 12px; letter-spacing: 0; padding: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 11px; font-size: 13.5px; display: inline-flex; gap: 5px; align-items: baseline; white-space: nowrap; }
@@ -292,7 +293,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
         </div>
 
         <div class="fgroup">
-          <h3>플랫폼 <button type="button" id="resetPlat" hidden>모두 선택</button></h3>
+          <h3>플랫폼 <span class="h3-actions"><button type="button" id="resetPlat" hidden>모두 선택</button><button type="button" id="clearPlat">모두 해제</button></span></h3>
           <div class="plat-list" id="fPlatform"></div>
         </div>
       </aside>
@@ -518,6 +519,8 @@ $("#fProvince").onclick = (e) => {
 $("#fDistrict").onchange = (e) => { state.district = e.target.value; apply(); };
 $("#fPlatform").onchange = (e) => { const v = e.target.dataset.v; e.target.checked ? state.platformsOff.delete(v) : state.platformsOff.add(v); apply(); };
 $("#resetPlat").onclick = () => { state.platformsOff.clear(); for (const i of $("#fPlatform").querySelectorAll("input")) i.checked = true; apply(); };
+// 모두 해제한 뒤 보고 싶은 플랫폼만 골라 체크할 수 있게
+$("#clearPlat").onclick = () => { for (const i of $("#fPlatform").querySelectorAll("input")) { i.checked = false; state.platformsOff.add(i.dataset.v); } apply(); };
 $("#resetRegion").onclick = () => { state.province = ""; state.district = ""; buildFilters(); apply(); };
 for (const [id, k] of [["#fSoon", "soon"], ["#fEasy", "easy"], ["#fNew", "fresh"]]) $(id).onchange = (e) => { state[k] = e.target.checked; apply(); };
 $("#resetAll").onclick = resetAll;
@@ -568,7 +571,9 @@ function apply() {
   state.shown = PAGE;
   $("#resultCount").textContent = fmt(result.length);
   $("#resetRegion").hidden = !state.province;
+  const platCount = $("#fPlatform").querySelectorAll("input").length;
   $("#resetPlat").hidden = !state.platformsOff.size;
+  $("#clearPlat").hidden = state.platformsOff.size >= platCount;
   renderActive();
   renderGrid();
   savePrefs();
@@ -584,7 +589,9 @@ function renderActive() {
   for (const t of state.types) tags.push(["types:" + t, t]);
   for (const t of state.channels) tags.push(["channels:" + t, t]);
   for (const t of state.categories) tags.push(["categories:" + t, t]);
-  if (state.platformsOff.size) tags.push(["plat", `플랫폼 ${state.platformsOff.size}곳 제외`]);
+  const platTotal = $("#fPlatform").querySelectorAll("input").length;
+  const platOn = platTotal - state.platformsOff.size;
+  if (state.platformsOff.size) tags.push(["plat", platOn === 0 ? "플랫폼 선택 안 함" : platOn <= state.platformsOff.size ? `플랫폼 ${platOn}곳만` : `플랫폼 ${state.platformsOff.size}곳 제외`]);
   $("#activeFilters").innerHTML = tags.map(([k, l]) => `<button type="button" class="af" data-k="${esc(k)}" aria-label="${esc(l)} 조건 빼기">${esc(l)}</button>`).join("");
   const b = $("#filterBadge"); b.textContent = tags.length; b.hidden = !tags.length;
 }
@@ -636,8 +643,11 @@ function renderSkeleton() {
 function renderGrid() {
   const grid = $("#grid");
   if (!result.length) {
-    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><b>조건에 맞는 캠페인이 없어요</b>조건을 하나씩 빼 보거나 지역을 넓혀 보세요.<br><button type="button" id="emptyReset">조건 모두 지우기</button></div>`;
-    $("#emptyReset").onclick = resetAll;
+    const noPlat = state.platformsOff.size >= $("#fPlatform").querySelectorAll("input").length;
+    grid.innerHTML = noPlat
+      ? `<div class="empty" style="grid-column:1/-1"><b>선택한 플랫폼이 없어요</b>필터의 플랫폼 목록에서 보고 싶은 곳을 체크해 주세요.</div>`
+      : `<div class="empty" style="grid-column:1/-1"><b>조건에 맞는 캠페인이 없어요</b>조건을 하나씩 빼 보거나 지역을 넓혀 보세요.<br><button type="button" id="emptyReset">조건 모두 지우기</button></div>`;
+    if (!noPlat) $("#emptyReset").onclick = resetAll;
     $("#more").textContent = "";
     return;
   }
