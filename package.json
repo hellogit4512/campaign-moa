@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "sync": "node fetch-campaigns.mjs",
-    "login": "node login-browser.mjs"
+    "login": "node login-browser.mjs",
+    "import:reviewnote": "node import-reviewnote.mjs"
   },
   "dependencies": {
     "playwright-core": "1.52.0"

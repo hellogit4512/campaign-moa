@@ -11,7 +11,7 @@ const API = "https://campaign-moa.greenorbit3.chatgpt.site/api/campaigns?format=
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "data");
 const REWARD_MAX = 140;
 // 사이트에서 빼는 플랫폼
-const EXCLUDED = new Set(["reviewmaker", "thereview", "reviewnavi", "reviewus", "modumoyeo"]);
+const EXCLUDED = new Set(["reviewmaker", "thereview", "reviewnavi", "reviewus", "modumoyeo", "popomon"]);
 
 // KST 기준 오늘 날짜 (YYYY-MM-DD)
 const todayKST = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
@@ -65,6 +65,13 @@ if (!process.env.MOA_NO_LOGIN && existsSync(join(dirname(fileURLToPath(import.me
   Object.assign(local, results);
   for (const [id, s] of Object.entries(status)) localStatus[id] = { ...s, url: LOGIN_COLLECTORS[id].url };
 }
+// 리뷰노트는 직접 둘러보며 가져온 목록(npm run import:reviewnote)을 쓴다
+const manual = await readJSON(join(OUT_DIR, "manual", "reviewnote.json"), null);
+if (manual?.items) {
+  local.reviewnote = Object.values(manual.items);
+  localStatus.reviewnote = { status: "success", records: local.reviewnote.length, lastSyncAt: manual.updatedAt, url: "https://www.reviewnote.co.kr/campaigns", method: "manual" };
+  console.log(`수동 가져오기 리뷰노트: ${local.reviewnote.length}개 (${manual.updatedAt.slice(0, 10)})`);
+}
 
 // 이번에 직접 수집하지 못한 플랫폼(예: GitHub Actions 에서 도는 레뷰·미블·데일리뷰·포블로그)은
 // 지난번 PC 수집 결과가 3일 이내면 서버의 옛 목록 대신 그걸 이어 쓴다
@@ -108,7 +115,7 @@ for (const c of candidates) {
 const sources = src.sources.filter((s) => !EXCLUDED.has(s.id)).map((s) => {
   const base = { id: s.id, name: s.name, url: s.url, status: s.status, records: s.recordsFound, lastSyncAt: s.lastSyncAt ?? null, method: s.collectionMethod };
   const l = localStatus[s.id];
-  if (l?.status === "success") return { ...base, url: l.url || LOCAL_COLLECTORS[s.id].url, status: "success", records: l.records, lastSyncAt: l.lastSyncAt, method: "local" };
+  if (l?.status === "success") return { ...base, url: l.url || LOCAL_COLLECTORS[s.id].url, status: "success", records: l.records, lastSyncAt: l.lastSyncAt, method: l.method || "local" };
   if (l?.status === "login_required") return { ...base, status: "login_required" };
   return base;
 });
