@@ -56,7 +56,7 @@ function area({ addr, label, delivery, text }) {
 
 const BEAUTY = /(피부|헤어|미용|네일|왁싱|속눈썹|에스테틱|마사지|스파|두피|눈썹|반영구|필라테스|요가|PT|클리닉|성형|치과|한의원)/i;
 const FOOD = /(맛집|식당|카페|고기|횟집|회|초밥|스시|요리|음식|디저트|베이커리|빵|술집|포차|이자카야|파스타|피자|치킨|국밥|갈비|삼겹|한우|곱창|족발|브런치|레스토랑|뷔페|칼국수|냉면|국수|라멘|쌀국수|감자탕|순대|떡볶이|분식|오마카세|와인|펍|bar)/i;
-function category(type, text) {
+export function category(type, text) {
   if (type === "배송") return "제품";
   if (BEAUTY.test(text)) return "뷰티";
   if (FOOD.test(text)) return "맛집";

@@ -2,6 +2,7 @@
 // 사용법: node fetch-campaigns.mjs
 // 결과: data/campaigns.json (마감 지난 캠페인 제외, 화면에 필요한 필드만)
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { LOCAL_COLLECTORS } from "./collectors.mjs";
@@ -57,6 +58,13 @@ for (const [id, c] of Object.entries(LOCAL_COLLECTORS)) {
     console.warn(`직접 수집 실패 ${c.name}: ${err.message} — 서버 목록 사용`);
   }
 }
+// 레뷰·미블은 로그인한 크롬 프로필이 있는 PC에서만 수집한다 (GitHub Actions 에서는 건너뜀)
+if (existsSync(join(dirname(fileURLToPath(import.meta.url)), "browser-profile"))) {
+  const { runLoginCollectors, LOGIN_COLLECTORS } = await import("./collectors-login.mjs");
+  const { results, status } = await runLoginCollectors(todayKST);
+  Object.assign(local, results);
+  for (const [id, s] of Object.entries(status)) localStatus[id] = { ...s, url: LOGIN_COLLECTORS[id].url };
+}
 
 const candidates = [];
 for (const r of src.rows) {
@@ -74,7 +82,7 @@ for (const c of candidates) {
   if (c.endDate && c.endDate < todayKST) continue; // 마감 지난 캠페인 제외
   if (seen.has(c.id)) continue;
   seen.add(c.id);
-  if (LOCAL_COLLECTORS[c.platform] && !firstSeen[c.id]) firstSeen[c.id] = todayKST;
+  if (local[c.platform] && !firstSeen[c.id]) firstSeen[c.id] = todayKST;
   rows.push(FIELDS.map((f) => {
     let v = c[f] ?? null;
     if (f === "reward" && typeof v === "string" && v.length > REWARD_MAX) v = v.slice(0, REWARD_MAX) + "…";
@@ -86,7 +94,8 @@ for (const c of candidates) {
 const sources = src.sources.filter((s) => !EXCLUDED.has(s.id)).map((s) => {
   const base = { id: s.id, name: s.name, url: s.url, status: s.status, records: s.recordsFound, lastSyncAt: s.lastSyncAt ?? null, method: s.collectionMethod };
   const l = localStatus[s.id];
-  if (l?.status === "success") return { ...base, url: LOCAL_COLLECTORS[s.id].url, status: "success", records: l.records, lastSyncAt: l.lastSyncAt, method: "local" };
+  if (l?.status === "success") return { ...base, url: l.url || LOCAL_COLLECTORS[s.id].url, status: "success", records: l.records, lastSyncAt: l.lastSyncAt, method: "local" };
+  if (l?.status === "login_required") return { ...base, status: "login_required" };
   return base;
 });
 

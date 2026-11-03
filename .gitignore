@@ -2,3 +2,4 @@
 data/*.tmp
 node_modules/
 data/sync.log
+browser-profile/
