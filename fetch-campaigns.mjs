@@ -59,11 +59,25 @@ for (const [id, c] of Object.entries(LOCAL_COLLECTORS)) {
   }
 }
 // 레뷰·미블은 로그인한 크롬 프로필이 있는 PC에서만 수집한다 (GitHub Actions 에서는 건너뜀)
-if (existsSync(join(dirname(fileURLToPath(import.meta.url)), "browser-profile"))) {
+if (!process.env.MOA_NO_LOGIN && existsSync(join(dirname(fileURLToPath(import.meta.url)), "browser-profile"))) {
   const { runLoginCollectors, LOGIN_COLLECTORS } = await import("./collectors-login.mjs");
   const { results, status } = await runLoginCollectors(todayKST);
   Object.assign(local, results);
   for (const [id, s] of Object.entries(status)) localStatus[id] = { ...s, url: LOGIN_COLLECTORS[id].url };
+}
+
+// 이번에 직접 수집하지 못한 플랫폼(예: GitHub Actions 에서 도는 레뷰·미블·데일리뷰·포블로그)은
+// 지난번 PC 수집 결과가 3일 이내면 서버의 옛 목록 대신 그걸 이어 쓴다
+const prev = await readJSON(join(OUT_DIR, "campaigns.json"), null);
+if (prev?.fields && prev.sources) {
+  const pf = Object.fromEntries(prev.fields.map((k, i) => [k, i]));
+  for (const s of prev.sources) {
+    if (local[s.id] || s.method !== "local" || !s.lastSyncAt) continue;
+    if (Date.now() - Date.parse(s.lastSyncAt) > 3 * 86400e3) continue;
+    local[s.id] = prev.rows.filter((r) => r[pf.platform] === s.id).map((r) => Object.fromEntries(FIELDS.map((f) => [f, r[pf[f]] ?? null])));
+    localStatus[s.id] = { status: "success", records: local[s.id].length, lastSyncAt: s.lastSyncAt, url: s.url };
+    console.log(`지난 PC 수집 유지 ${s.name}: ${local[s.id].length}개 (${s.lastSyncAt.slice(0, 10)})`);
+  }
 }
 
 const candidates = [];
