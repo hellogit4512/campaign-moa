@@ -1,0 +1,113 @@
+// 체험모아 데이터 수집 스크립트 — 하루 한 번 실행
+// 사용법: node fetch-campaigns.mjs
+// 결과: data/campaigns.json (마감 지난 캠페인 제외, 화면에 필요한 필드만)
+import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { LOCAL_COLLECTORS } from "./collectors.mjs";
+
+const API = "https://campaign-moa.greenorbit3.chatgpt.site/api/campaigns?format=compact";
+const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "data");
+const REWARD_MAX = 140;
+// 사이트에서 빼는 플랫폼
+const EXCLUDED = new Set(["reviewmaker", "thereview", "reviewnavi", "reviewus", "modumoyeo"]);
+
+// KST 기준 오늘 날짜 (YYYY-MM-DD)
+const todayKST = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+
+async function fetchWithRetry(url, tries = 3) {
+  for (let i = 1; i <= tries; i++) {
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 campaign-moa-sync" } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      if (i === tries) throw err;
+      console.warn(`요청 실패 (${i}/${tries}): ${err.message} — 10초 후 재시도`);
+      await new Promise((r) => setTimeout(r, 10_000));
+    }
+  }
+}
+
+async function readJSON(path, fallback) {
+  try { return JSON.parse(await readFile(path, "utf8")); } catch { return fallback; }
+}
+
+const src = await fetchWithRetry(API);
+const at = Object.fromEntries(src.fields.map((f, i) => [f, i]));
+
+// 출력 필드 순서 — index.html 은 fields 로 위치를 찾는다
+const FIELDS = ["id", "platform", "title", "url", "category", "type", "province", "district",
+  "region", "imageUrl", "channel", "reward", "endDate", "applicantCount", "selectionCount", "createdAt"];
+
+// 처음 본 날짜 기록 (직접 수집한 캠페인의 "새로 등록" 판단용)
+const firstSeenPath = join(OUT_DIR, "first-seen.json");
+const firstSeen = await readJSON(firstSeenPath, {});
+
+// 서버 수집이 멈춘 플랫폼은 이 PC에서 직접 수집한다. 실패하면 서버 목록을 그대로 쓴다.
+const local = {};
+const localStatus = {};
+for (const [id, c] of Object.entries(LOCAL_COLLECTORS)) {
+  try {
+    local[id] = await c.run(todayKST);
+    localStatus[id] = { status: "success", records: local[id].length, lastSyncAt: new Date().toISOString() };
+    console.log(`직접 수집 ${c.name}: ${local[id].length}개`);
+  } catch (err) {
+    localStatus[id] = { status: "error", error: err.message };
+    console.warn(`직접 수집 실패 ${c.name}: ${err.message} — 서버 목록 사용`);
+  }
+}
+
+const candidates = [];
+for (const r of src.rows) {
+  const platform = r[at.platform];
+  if (EXCLUDED.has(platform) || local[platform]) continue;
+  candidates.push(Object.fromEntries(FIELDS.map((f) => [f, r[at[f]] ?? null])));
+}
+for (const list of Object.values(local)) {
+  for (const c of list) candidates.push({ ...c, createdAt: firstSeen[c.id] || todayKST });
+}
+
+const seen = new Set();
+const rows = [];
+for (const c of candidates) {
+  if (c.endDate && c.endDate < todayKST) continue; // 마감 지난 캠페인 제외
+  if (seen.has(c.id)) continue;
+  seen.add(c.id);
+  if (LOCAL_COLLECTORS[c.platform] && !firstSeen[c.id]) firstSeen[c.id] = todayKST;
+  rows.push(FIELDS.map((f) => {
+    let v = c[f] ?? null;
+    if (f === "reward" && typeof v === "string" && v.length > REWARD_MAX) v = v.slice(0, REWARD_MAX) + "…";
+    if (f === "createdAt" && v) v = v.slice(0, 10);
+    return v;
+  }));
+}
+
+const sources = src.sources.filter((s) => !EXCLUDED.has(s.id)).map((s) => {
+  const base = { id: s.id, name: s.name, url: s.url, status: s.status, records: s.recordsFound, lastSyncAt: s.lastSyncAt ?? null, method: s.collectionMethod };
+  const l = localStatus[s.id];
+  if (l?.status === "success") return { ...base, url: LOCAL_COLLECTORS[s.id].url, status: "success", records: l.records, lastSyncAt: l.lastSyncAt, method: "local" };
+  return base;
+});
+
+const out = {
+  syncedAt: new Date().toISOString(),
+  sourceGeneratedAt: src.generatedAt,
+  today: todayKST,
+  fields: FIELDS,
+  sources,
+  rows,
+};
+
+await mkdir(OUT_DIR, { recursive: true });
+const tmp = join(OUT_DIR, "campaigns.json.tmp");
+await writeFile(tmp, JSON.stringify(out));
+await rename(tmp, join(OUT_DIR, "campaigns.json"));
+// 90일 넘게 안 보인 기록은 정리
+const keepAfter = new Date(Date.parse(todayKST) - 90 * 86400e3).toISOString().slice(0, 10);
+for (const [id, d] of Object.entries(firstSeen)) if (d < keepAfter && !seen.has(id)) delete firstSeen[id];
+await writeFile(firstSeenPath, JSON.stringify(firstSeen));
+
+const stale = sources.filter((s) => s.lastSyncAt && (Date.now() - Date.parse(s.lastSyncAt)) > 3 * 86400e3);
+console.log(`완료: 진행 중 ${rows.length}개 저장 (${todayKST})`);
+if (stale.length) console.log(`3일 넘게 갱신 안 된 플랫폼: ${stale.map((s) => s.name).join(", ")}`);
