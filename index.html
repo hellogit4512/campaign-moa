@@ -363,10 +363,20 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
     </div>
   </section>
 
-  <!-- 관리자 화면: 주소 끝에 #admin 을 붙여야 보인다. 수집 실행은 GitHub 토큰이 있어야 된다 -->
+  <!-- 관리자 화면: 주소 끝에 #admin. 저장소 관리 권한이 있는 GitHub 토큰으로 로그인해야 내용이 보인다 -->
   <section class="wrap" id="admin" hidden>
-    <div class="pulse"><h1>관리</h1></div>
-    <div class="admin-grid">
+    <div class="pulse"><h1>관리</h1><div class="stats" id="adminWho"></div></div>
+
+    <form class="panel" id="adminLogin" style="max-width:420px">
+      <h3>관리자 로그인</h3>
+      <p>이 저장소(hellogit4512/campaign-moa)를 관리하는 GitHub 계정의 토큰으로 로그인해요. 토큰은 이 브라우저에만 저장돼요.</p>
+      <label for="ghToken" style="font-size:13px;color:var(--muted)">GitHub 토큰</label>
+      <input type="password" id="ghToken" autocomplete="off" placeholder="github_pat_…">
+      <div class="btns"><button class="btn primary" type="submit" id="loginBtn">로그인</button></div>
+      <p id="loginMsg"></p>
+    </form>
+
+    <div class="admin-grid" id="adminBody" hidden>
       <div class="panel">
         <h3>데이터</h3>
         <dl class="kv" id="adminData"></dl>
@@ -375,13 +385,8 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
       <div class="panel">
         <h3>지금 수집 실행</h3>
         <p>GitHub에서 수집을 바로 돌려요. 5분쯤 뒤 사이트에 반영돼요. 레뷰·미블·데일리뷰·포블로그·강남맛집·메타체험단은 GitHub에서 접속이 막혀 있어서 마지막 PC 수집 결과(3일 이내)를 그대로 써요.</p>
-        <div id="tokenBox">
-          <label for="ghToken" style="font-size:13px;color:var(--muted)">GitHub 토큰 (이 브라우저에만 저장)</label>
-          <input type="password" id="ghToken" autocomplete="off" placeholder="github_pat_…">
-        </div>
         <div class="btns">
           <button class="btn primary" type="button" id="runSync">수집 실행</button>
-          <button class="btn" type="button" id="forgetToken" hidden>토큰 지우기</button>
           <a class="btn" href="https://github.com/hellogit4512/campaign-moa/actions/workflows/daily-sync.yml" target="_blank" rel="noopener noreferrer">GitHub에서 보기</a>
         </div>
         <p id="runMsg"></p>
@@ -402,6 +407,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
         <h3>플랫폼별 수집 현황</h3>
         <div class="src-wrap"><table class="src"><tbody id="adminSrc"></tbody></table></div>
       </div>
+      <div class="btns" style="grid-column: 1 / -1"><button class="btn" type="button" id="logoutBtn">로그아웃</button></div>
     </div>
   </section>
 </main>
@@ -846,8 +852,41 @@ const TOKEN_KEY = "moa.ghToken";
 const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
 const METHOD = { local: "직접 수집", manual: "직접 가져오기", server: "원래 사이트 서버", pc: "원래 사이트 (PC)" };
 
-function renderAdmin() {
+// 로그인 = 토큰으로 이 저장소에 쓰기 권한이 있는지 GitHub에 물어보기
+let adminUser = null;
+async function verifyToken(token) {
+  const h = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" };
+  const res = await fetch(`https://api.github.com/repos/${REPO}`, { headers: h, cache: "no-cache" });
+  if (res.status === 401) throw new Error("토큰이 맞지 않거나 만료됐어요.");
+  if (!res.ok) throw new Error(`이 토큰으로는 저장소를 볼 수 없어요 (GitHub 응답 ${res.status}).`);
+  const repo = await res.json();
+  if (!repo.permissions?.admin && !repo.permissions?.push) throw new Error("이 계정은 저장소 관리 권한이 없어요.");
+  const u = await fetch("https://api.github.com/user", { headers: h }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  return u?.login || "관리자";
+}
+$("#adminLogin").onsubmit = async (e) => {
+  e.preventDefault();
+  const token = $("#ghToken").value.trim();
+  if (!token) { $("#loginMsg").textContent = "토큰을 넣어 주세요."; return; }
+  $("#loginBtn").disabled = true; $("#loginMsg").textContent = "확인 중…";
+  try {
+    adminUser = await verifyToken(token);
+    try { localStorage.setItem(TOKEN_KEY, token); } catch {}
+    $("#ghToken").value = ""; $("#loginMsg").textContent = "";
+    renderAdmin();
+  } catch (err) { $("#loginMsg").textContent = err.message; }
+  finally { $("#loginBtn").disabled = false; }
+};
+$("#logoutBtn").onclick = () => { try { localStorage.removeItem(TOKEN_KEY); } catch {} adminUser = null; renderAdmin(); };
+
+async function renderAdmin() {
   if (!meta) return;
+  // 저장된 토큰이 있으면 페이지를 열 때 한 번 다시 확인한다
+  if (!adminUser && getToken()) { try { adminUser = await verifyToken(getToken()); } catch { try { localStorage.removeItem(TOKEN_KEY); } catch {} } }
+  $("#adminLogin").hidden = !!adminUser;
+  $("#adminBody").hidden = !adminUser;
+  $("#adminWho").innerHTML = adminUser ? `<div class="stat"><b>${esc(adminUser)}</b><span>로그인됨</span></div>` : "";
+  if (!adminUser) return;
   const when = (iso) => iso ? new Date(iso).toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
   $("#adminData").innerHTML =
     `<dt>마지막 업데이트</dt><dd>${esc(when(meta.syncedAt))} (${esc(ago(meta.syncedAt))})</dd>` +
@@ -860,9 +899,6 @@ function renderAdmin() {
     const w = s.status === "login_required" ? `로그인 필요 · ${ago(s.lastSyncAt)}` : ago(s.lastSyncAt);
     return `<tr><td><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)}</a></td><td class="num">${fmt(live.get(s.id) || 0)}</td><td class="${stale || s.status === "login_required" ? "bad" : ""}">${esc(w)}</td><td>${esc(METHOD[s.method] || s.method || "")}</td></tr>`;
   }).join("");
-  const hasToken = !!getToken();
-  $("#tokenBox").hidden = hasToken;
-  $("#forgetToken").hidden = !hasToken;
   loadRuns();
 }
 
@@ -882,9 +918,8 @@ async function loadRuns() {
 }
 
 $("#runSync").onclick = async () => {
-  const input = $("#ghToken").value.trim();
-  const token = getToken() || input;
-  if (!token) { $("#runMsg").textContent = "GitHub 토큰을 먼저 넣어 주세요. (이 저장소의 Actions 쓰기 권한만 있는 토큰이면 돼요)"; return; }
+  const token = getToken();
+  if (!adminUser || !token) { renderAdmin(); return; }
   $("#runSync").disabled = true;
   $("#runMsg").textContent = "실행 요청 중…";
   try {
@@ -895,9 +930,7 @@ $("#runSync").onclick = async () => {
     });
     if (res.status === 401 || res.status === 403 || res.status === 404) throw new Error("토큰이 맞지 않거나 권한이 없어요. Actions 쓰기 권한이 있는지 확인해 주세요.");
     if (res.status !== 204) throw new Error(`GitHub 응답 ${res.status}`);
-    if (input) { try { localStorage.setItem(TOKEN_KEY, input); } catch {} $("#ghToken").value = ""; }
     $("#runMsg").textContent = "수집을 시작했어요. 5분쯤 뒤 새로고침하면 반영돼요.";
-    renderAdmin();
     setTimeout(loadRuns, 5000);
   } catch (err) {
     $("#runMsg").textContent = err.message;
@@ -905,7 +938,6 @@ $("#runSync").onclick = async () => {
     $("#runSync").disabled = false;
   }
 };
-$("#forgetToken").onclick = () => { try { localStorage.removeItem(TOKEN_KEY); } catch {} $("#runMsg").textContent = "이 브라우저에서 토큰을 지웠어요."; renderAdmin(); };
 addEventListener("hashchange", () => { if (location.hash === "#admin") { $("#tab-admin").hidden = false; switchView("admin"); } });
 
 let toastTimer;
