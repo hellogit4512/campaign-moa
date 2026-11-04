@@ -225,6 +225,8 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .src td:nth-child(2), .src td:nth-child(3) { text-align: right; white-space: nowrap; }
 .src .bad { color: var(--hot); font-weight: 600; }
 
+.site-foot { padding-block: 8px 96px; display: flex; justify-content: center; align-items: center; gap: 8px; font-size: 12.5px; color: var(--faint); }
+.site-foot img { height: 20px; width: auto; }
 .toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); translate: -50% 20px; opacity: 0; background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 14px; z-index: 60; transition: opacity .2s, translate .2s; pointer-events: none; white-space: nowrap; }
 .toast.show { opacity: 1; translate: -50% 0; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
@@ -336,6 +338,11 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
     </div>
   </section>
 </main>
+
+<!-- 방문 수: hits.sh (가입 없는 무료 카운터). 페이지를 열 때마다 1씩 올라간다 -->
+<footer class="wrap site-foot">
+  <img src="https://hits.sh/hellogit4512.github.io/campaign-moa.svg?view=today-total&amp;label=%EB%B0%A9%EB%AC%B8%20%EC%98%A4%EB%8A%98%2F%EC%A0%84%EC%B2%B4&amp;color=2a52d4&amp;labelColor=5b6578" alt="방문 수" loading="eager" referrerpolicy="no-referrer-when-downgrade" onerror="this.parentNode.hidden=true">
+</footer>
 
 <dialog id="sourcesDlg" aria-labelledby="srcTitle">
   <div class="dlg-head"><h3 id="srcTitle">플랫폼별 수집 현황</h3><button type="button" id="closeSrc" aria-label="닫기">✕</button></div>
