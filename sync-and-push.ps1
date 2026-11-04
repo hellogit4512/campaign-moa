@@ -12,13 +12,19 @@ function Run([string]$label, [scriptblock]$cmd) {
 }
 
 Log "시작"
-Run "pull" { git pull --ff-only origin main }
+# GitHub Actions 가 그사이 올린 목록 커밋이 있어도 멈추지 않게 rebase 로 받는다 (목록 파일은 어차피 새로 만든다)
+Run "pull" { git pull --rebase -X theirs origin main }
 Run "수집" { node fetch-campaigns.mjs }
 Run "add" { git add data/campaigns.json data/first-seen.json }
 git diff --cached --quiet
 if ($LASTEXITCODE -ne 0) {
     $msg = "캠페인 목록 갱신 $(Get-Date -Format 'yyyy-MM-dd') (PC 수집)"
     Run "commit" { git commit -m $msg }
-    Run "push" { git push origin main }
+    # 수집하는 20분 사이에 Actions 가 먼저 올렸으면 push 가 거절되므로, 한 번 더 받아서 다시 올린다
+    git push origin main 2>&1 | ForEach-Object { Log "  $_" }
+    if ($LASTEXITCODE -ne 0) {
+        Run "pull (재시도)" { git pull --rebase -X theirs origin main }
+        Run "push" { git push origin main }
+    }
 }
 Log "완료"
