@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { LOCAL_COLLECTORS } from "./collectors.mjs";
+import { MORE_COLLECTORS } from "./collectors-more.mjs";
 
 const API = "https://campaign-moa.greenorbit3.chatgpt.site/api/campaigns?format=compact";
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "data");
@@ -34,7 +35,14 @@ async function readJSON(path, fallback) {
   try { return JSON.parse(await readFile(path, "utf8")); } catch { return fallback; }
 }
 
-const src = await fetchWithRetry(API);
+// 원래 사이트 서버는 보조 자료. 응답이 없어도 직접 수집한 목록으로 계속 진행한다
+let src;
+try {
+  src = await fetchWithRetry(API);
+} catch (err) {
+  console.warn(`원래 사이트 서버 응답 없음: ${err.message} — 직접 수집한 목록만 사용`);
+  src = { fields: ["id", "platform"], rows: [], sources: [], generatedAt: null };
+}
 const at = Object.fromEntries(src.fields.map((f, i) => [f, i]));
 
 // 출력 필드 순서 — index.html 은 fields 로 위치를 찾는다
@@ -48,10 +56,14 @@ const firstSeen = await readJSON(firstSeenPath, {});
 // 서버 수집이 멈춘 플랫폼은 이 PC에서 직접 수집한다. 실패하면 서버 목록을 그대로 쓴다.
 const local = {};
 const localStatus = {};
-for (const [id, c] of Object.entries(LOCAL_COLLECTORS)) {
+const DIRECT = { ...LOCAL_COLLECTORS, ...MORE_COLLECTORS };
+for (const [id, c] of Object.entries(DIRECT)) {
   try {
-    local[id] = await c.run(todayKST);
-    localStatus[id] = { status: "success", records: local[id].length, lastSyncAt: new Date().toISOString() };
+    const list = await c.run(todayKST);
+    // 0개면 사이트 구조가 바뀌었을 가능성이 커서 실패로 본다 (지난 결과나 서버 목록을 대신 씀)
+    if (!list.length) throw new Error("가져온 캠페인이 0개");
+    local[id] = list;
+    localStatus[id] = { status: "success", records: list.length, lastSyncAt: new Date().toISOString(), url: c.url, name: c.name };
     console.log(`직접 수집 ${c.name}: ${local[id].length}개`);
   } catch (err) {
     localStatus[id] = { status: "error", error: err.message };
@@ -63,13 +75,13 @@ if (!process.env.MOA_NO_LOGIN && existsSync(join(dirname(fileURLToPath(import.me
   const { runLoginCollectors, LOGIN_COLLECTORS } = await import("./collectors-login.mjs");
   const { results, status } = await runLoginCollectors(todayKST);
   Object.assign(local, results);
-  for (const [id, s] of Object.entries(status)) localStatus[id] = { ...s, url: LOGIN_COLLECTORS[id].url };
+  for (const [id, s] of Object.entries(status)) localStatus[id] = { ...s, url: LOGIN_COLLECTORS[id].url, name: LOGIN_COLLECTORS[id].name };
 }
 // 리뷰노트는 직접 둘러보며 가져온 목록(npm run import:reviewnote)을 쓴다
 const manual = await readJSON(join(OUT_DIR, "manual", "reviewnote.json"), null);
 if (manual?.items) {
   local.reviewnote = Object.values(manual.items);
-  localStatus.reviewnote = { status: "success", records: local.reviewnote.length, lastSyncAt: manual.updatedAt, url: "https://www.reviewnote.co.kr/campaigns", method: "manual" };
+  localStatus.reviewnote = { status: "success", records: local.reviewnote.length, lastSyncAt: manual.updatedAt, url: "https://www.reviewnote.co.kr/campaigns", method: "manual", name: "리뷰노트" };
   console.log(`수동 가져오기 리뷰노트: ${local.reviewnote.length}개 (${manual.updatedAt.slice(0, 10)})`);
 }
 
@@ -82,7 +94,7 @@ if (prev?.fields && prev.sources) {
     if (local[s.id] || s.method !== "local" || !s.lastSyncAt) continue;
     if (Date.now() - Date.parse(s.lastSyncAt) > 3 * 86400e3) continue;
     local[s.id] = prev.rows.filter((r) => r[pf.platform] === s.id).map((r) => Object.fromEntries(FIELDS.map((f) => [f, r[pf[f]] ?? null])));
-    localStatus[s.id] = { status: "success", records: local[s.id].length, lastSyncAt: s.lastSyncAt, url: s.url };
+    localStatus[s.id] = { status: "success", records: local[s.id].length, lastSyncAt: s.lastSyncAt, url: s.url, name: s.name };
     console.log(`지난 PC 수집 유지 ${s.name}: ${local[s.id].length}개 (${s.lastSyncAt.slice(0, 10)})`);
   }
 }
@@ -119,6 +131,12 @@ const sources = src.sources.filter((s) => !EXCLUDED.has(s.id)).map((s) => {
   if (l?.status === "login_required") return { ...base, status: "login_required" };
   return base;
 });
+// 서버 목록에 없는 플랫폼(서버가 응답하지 않은 날 등)도 수집 현황에 남긴다
+for (const [id, l] of Object.entries(localStatus)) {
+  if (EXCLUDED.has(id) || sources.some((s) => s.id === id) || l.status !== "success") continue;
+  const old = prev?.sources?.find((s) => s.id === id);
+  sources.push({ id, name: l.name || old?.name || id, url: l.url || old?.url || null, status: "success", records: l.records, lastSyncAt: l.lastSyncAt, method: l.method || "local" });
+}
 
 const out = {
   syncedAt: new Date().toISOString(),
