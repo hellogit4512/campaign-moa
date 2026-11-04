@@ -209,7 +209,8 @@ button { cursor: pointer; }
 .backup p { margin: 0; font-size: 13px; color: var(--muted); }
 .backup textarea { width: 100%; min-height: 80px; border-radius: 8px; border: 1px solid var(--line); background: var(--sunken); padding: 8px; font: 12px var(--f-num); resize: vertical; }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; }
-.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-size: 13.5px; font-weight: 500; }
+.btn { border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; border-radius: 999px; padding: 7px 14px; font-size: 13.5px; font-weight: 500; }
+.btn:disabled { opacity: .5; cursor: wait; }
 .btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
 /* ── 데이터 현황 ── */
@@ -225,8 +226,27 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
 .src td:nth-child(2), .src td:nth-child(3) { text-align: right; white-space: nowrap; }
 .src .bad { color: var(--hot); font-weight: 600; }
 
-.site-foot { padding-block: 8px 96px; display: flex; justify-content: center; align-items: center; gap: 8px; font-size: 12.5px; color: var(--faint); }
-.site-foot img { height: 20px; width: auto; }
+.fresh-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding-block: 0 14px; }
+.fresh-row .fresh { padding-block: 0; }
+.hits { height: 20px; width: auto; flex: none; }
+
+/* ── 관리자 ── */
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; padding-block: 8px 64px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.panel h3 { margin: 0; font: 700 16px var(--f-display); }
+.panel p { margin: 0; font-size: 13.5px; color: var(--muted); }
+.panel code { font: 12.5px var(--f-num); background: var(--sunken); padding: 1px 6px; border-radius: 5px; color: var(--ink); }
+.panel .src-wrap { overflow-x: auto; }
+.panel input[type="password"] { width: 100%; height: 38px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--sunken); padding: 0 10px; font: 13px var(--f-num); }
+.runs { display: grid; gap: 6px; font-size: 13px; }
+.runs div { display: flex; justify-content: space-between; gap: 10px; }
+.runs .ok { color: var(--good); font-weight: 600; }
+.runs .bad { color: var(--hot); font-weight: 600; }
+.runs .wait { color: var(--muted); font-weight: 600; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13.5px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; }
+.steps { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; color: var(--muted); }
 .toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); translate: -50% 20px; opacity: 0; background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 14px; z-index: 60; transition: opacity .2s, translate .2s; pointer-events: none; white-space: nowrap; }
 .toast.show { opacity: 1; translate: -50% 0; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
@@ -246,6 +266,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
     <nav class="tabs" role="tablist" aria-label="화면 선택">
       <button class="tab" role="tab" id="tab-explore" aria-selected="true" data-view="explore">탐색</button>
       <button class="tab" role="tab" id="tab-mine" aria-selected="false" data-view="mine">내 체험 <span class="cnt num" id="mineCount">0</span></button>
+      <button class="tab" role="tab" id="tab-admin" aria-selected="false" data-view="admin" hidden>관리</button>
     </nav>
   </div>
 </header>
@@ -256,11 +277,15 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
       <h1>오늘 신청할 수 있는 체험 <em><span class="num" id="liveCount">—</span>개</em></h1>
       <div class="stats">
         <div class="stat hot"><b class="num" id="todayCount">—</b><span>오늘 마감</span></div>
-        <div class="stat"><b class="num" id="newCount">—</b><span>최근 3일 새로 등록</span></div>
+        <div class="stat" id="newStat" hidden><b class="num" id="newCount">—</b><span>최근 3일 새로 등록</span></div>
         <div class="stat"><b class="num" id="easyCount">—</b><span>경쟁률 3:1 이하</span></div>
       </div>
     </div>
-    <div class="fresh" id="fresh"><span><span class="dot"></span>불러오는 중…</span></div>
+    <div class="fresh-row">
+      <div class="fresh" id="fresh"><span><span class="dot"></span>불러오는 중…</span></div>
+      <!-- 방문 수: hits.sh (가입 없는 무료 카운터). 페이지를 열 때마다 1씩 올라간다 -->
+      <img class="hits" src="https://hits.sh/hellogit4512.github.io/campaign-moa.svg?view=today-total&amp;label=%EB%B0%A9%EB%AC%B8%20%EC%98%A4%EB%8A%98%2F%EC%A0%84%EC%B2%B4&amp;color=2a52d4&amp;labelColor=5b6578" alt="방문 수" referrerpolicy="no-referrer-when-downgrade" onerror="this.hidden=true">
+    </div>
 
     <div class="layout">
       <aside class="filters" id="filters" aria-label="필터">
@@ -270,7 +295,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
           <h3>빠른 조건 <button type="button" id="resetAll">전체 초기화</button></h3>
           <label class="toggle"><span>오늘·내일 마감만<small>놓치기 전에 바로 신청</small></span><input type="checkbox" id="fSoon"></label>
           <label class="toggle"><span>경쟁률 낮은 체험<small>신청자 ÷ 모집 인원 3 이하</small></span><input type="checkbox" id="fEasy"></label>
-          <label class="toggle"><span>새로 올라온 체험<small>최근 3일 안에 등록</small></span><input type="checkbox" id="fNew"></label>
+          <label class="toggle" id="fNewRow" hidden><span>새로 올라온 체험<small>최근 3일 안에 등록</small></span><input type="checkbox" id="fNew"></label>
         </div>
 
         <div class="fgroup">
@@ -306,7 +331,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
           <h2><span class="num" id="resultCount">0</span>개 캠페인</h2>
           <div class="sort" role="group" aria-label="정렬" id="sort">
             <button type="button" data-sort="deadline" aria-pressed="true">마감 임박순</button>
-            <button type="button" data-sort="recent" aria-pressed="false">최신 등록순</button>
+            <button type="button" data-sort="recent" aria-pressed="false" hidden>최신 등록순</button>
             <button type="button" data-sort="ratio" aria-pressed="false">경쟁률 낮은순</button>
             <button type="button" data-sort="seats" aria-pressed="false">모집 많은순</button>
           </div>
@@ -337,20 +362,49 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
       </div>
     </div>
   </section>
+
+  <!-- 관리자 화면: 주소 끝에 #admin 을 붙여야 보인다. 수집 실행은 GitHub 토큰이 있어야 된다 -->
+  <section class="wrap" id="admin" hidden>
+    <div class="pulse"><h1>관리</h1></div>
+    <div class="admin-grid">
+      <div class="panel">
+        <h3>데이터</h3>
+        <dl class="kv" id="adminData"></dl>
+      </div>
+
+      <div class="panel">
+        <h3>지금 수집 실행</h3>
+        <p>GitHub에서 수집을 바로 돌려요. 5분쯤 뒤 사이트에 반영돼요. 레뷰·미블·데일리뷰·포블로그·강남맛집·메타체험단은 GitHub에서 접속이 막혀 있어서 마지막 PC 수집 결과(3일 이내)를 그대로 써요.</p>
+        <div id="tokenBox">
+          <label for="ghToken" style="font-size:13px;color:var(--muted)">GitHub 토큰 (이 브라우저에만 저장)</label>
+          <input type="password" id="ghToken" autocomplete="off" placeholder="github_pat_…">
+        </div>
+        <div class="btns">
+          <button class="btn primary" type="button" id="runSync">수집 실행</button>
+          <button class="btn" type="button" id="forgetToken" hidden>토큰 지우기</button>
+          <a class="btn" href="https://github.com/hellogit4512/campaign-moa/actions/workflows/daily-sync.yml" target="_blank" rel="noopener noreferrer">GitHub에서 보기</a>
+        </div>
+        <p id="runMsg"></p>
+        <div class="runs" id="runs"></div>
+      </div>
+
+      <div class="panel">
+        <h3>PC에서 할 일</h3>
+        <ol class="steps">
+          <li>매일 오전 8시에 이 PC가 전체 수집 후 올려요. 바로 돌리려면 <code>.\sync-and-push.ps1</code></li>
+          <li>레뷰·미블이 '로그인 필요'면 <code>npm run login</code></li>
+          <li>리뷰노트는 가끔 <code>npm run import:reviewnote</code> 로 직접 가져오기</li>
+          <li>수집 기록은 <code>data/sync.log</code></li>
+        </ol>
+      </div>
+
+      <div class="panel" style="grid-column: 1 / -1">
+        <h3>플랫폼별 수집 현황</h3>
+        <div class="src-wrap"><table class="src"><tbody id="adminSrc"></tbody></table></div>
+      </div>
+    </div>
+  </section>
 </main>
-
-<!-- 방문 수: hits.sh (가입 없는 무료 카운터). 페이지를 열 때마다 1씩 올라간다 -->
-<footer class="wrap site-foot">
-  <img src="https://hits.sh/hellogit4512.github.io/campaign-moa.svg?view=today-total&amp;label=%EB%B0%A9%EB%AC%B8%20%EC%98%A4%EB%8A%98%2F%EC%A0%84%EC%B2%B4&amp;color=2a52d4&amp;labelColor=5b6578" alt="방문 수" loading="eager" referrerpolicy="no-referrer-when-downgrade" onerror="this.parentNode.hidden=true">
-</footer>
-
-<dialog id="sourcesDlg" aria-labelledby="srcTitle">
-  <div class="dlg-head"><h3 id="srcTitle">플랫폼별 수집 현황</h3><button type="button" id="closeSrc" aria-label="닫기">✕</button></div>
-  <div class="dlg-body">
-    <p id="srcNote"></p>
-    <table class="src"><tbody id="srcRows"></tbody></table>
-  </div>
-</dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -455,22 +509,27 @@ async function boot() {
   buildFilters();
   apply();
   renderMineCount();
-  if (location.hash === "#mine") switchView("mine");
+  if (location.hash === "#admin") { $("#tab-admin").hidden = false; switchView("admin"); }
+  else if (location.hash === "#mine") switchView("mine");
 }
 
 function renderPulse() {
   const recentCut = new Date(Date.parse(today) - 3 * 86400e3).toISOString().slice(0, 10);
   $("#liveCount").textContent = fmt(all.length);
   $("#todayCount").textContent = fmt(all.filter((c) => c.end === today).length);
-  $("#newCount").textContent = fmt(all.filter((c) => c.created >= recentCut).length);
+  const newCount = all.filter((c) => c.created >= recentCut).length;
+  $("#newCount").textContent = fmt(newCount);
   $("#easyCount").textContent = fmt(all.filter((c) => c.ratio != null && c.ratio <= 3).length);
-  const stale = meta.sources.filter((s) => !s.lastSyncAt || Date.now() - Date.parse(s.lastSyncAt) > 3 * 86400e3);
+  // 직접 수집을 시작한 지 얼마 안 돼 거의 전부가 '새로 등록'으로 잡히는 동안은 관련 기능을 숨긴다
+  const newReady = all.length > 0 && newCount / all.length < 0.4;
+  $("#newStat").hidden = $("#fNewRow").hidden = !newReady;
+  $("#sort [data-sort=recent]").hidden = !newReady;
+  if (!newReady) {
+    state.fresh = false; $("#fNew").checked = false;
+    if (state.sort === "recent") { state.sort = "deadline"; for (const x of $("#sort").children) x.setAttribute("aria-pressed", x.dataset.sort === "deadline"); }
+  }
   const synced = new Date(meta.syncedAt).toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
-  $("#fresh").innerHTML =
-    `<span><span class="dot"></span>${esc(synced)} 업데이트 · 매일 자동 갱신</span>` +
-    (stale.length ? `<span><span class="dot warn"></span>${stale.length}개 플랫폼은 3일 넘게 새 목록이 없어요</span>` : "") +
-    `<button type="button" id="openSrc">수집 현황 보기</button>`;
-  $("#openSrc").onclick = openSources;
+  $("#fresh").innerHTML = `<span><span class="dot"></span>${esc(synced)} 업데이트 · 매일 자동 갱신</span>`;
 }
 
 // ── 필터 UI ──
@@ -702,7 +761,9 @@ function switchView(v) {
   for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", t.dataset.view === v);
   $("#explore").hidden = v !== "explore";
   $("#mine").hidden = v !== "mine";
+  $("#admin").hidden = v !== "admin";
   if (v === "mine") renderMine();
+  else if (v === "admin") renderAdmin();
   else renderGrid();
   scrollTo({ top: 0 });
 }
@@ -778,19 +839,74 @@ $("#restoreBackup").onclick = () => {
   } catch { toast("백업 형식이 아니에요. 복사한 내용을 그대로 붙여 넣어 주세요"); }
 };
 
-// ── 수집 현황 ──
-function openSources() {
+// ── 관리자 ──
+const REPO = "hellogit4512/campaign-moa";
+const WORKFLOW = "daily-sync.yml";
+const TOKEN_KEY = "moa.ghToken";
+const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } };
+const METHOD = { local: "직접 수집", manual: "직접 가져오기", server: "원래 사이트 서버", pc: "원래 사이트 (PC)" };
+
+function renderAdmin() {
+  if (!meta) return;
+  const when = (iso) => iso ? new Date(iso).toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+  $("#adminData").innerHTML =
+    `<dt>마지막 업데이트</dt><dd>${esc(when(meta.syncedAt))} (${esc(ago(meta.syncedAt))})</dd>` +
+    `<dt>진행 중 캠페인</dt><dd class="num">${fmt(all.length)}개</dd>` +
+    `<dt>원래 사이트 서버</dt><dd>${esc(meta.sourceGeneratedAt ? `${when(meta.sourceGeneratedAt)} 목록` : "응답 없음")}</dd>`;
   const rows = [...meta.sources].sort((a, b) => (b.records || 0) - (a.records || 0));
   const live = countBy(all, (c) => c.platform);
-  $("#srcNote").textContent = `진행 중인 캠페인만 보여 줘요. 마지막 갱신이 3일을 넘은 플랫폼은 원본 사이트에서 직접 확인하는 게 정확해요.`;
-  $("#srcRows").innerHTML = `<tr><td><b>플랫폼</b></td><td><b>진행 중</b></td><td><b>마지막 갱신</b></td></tr>` + rows.map((s) => {
+  $("#adminSrc").innerHTML = `<tr><td><b>플랫폼</b></td><td><b>진행 중</b></td><td><b>마지막 갱신</b></td><td><b>방식</b></td></tr>` + rows.map((s) => {
     const stale = !s.lastSyncAt || Date.now() - Date.parse(s.lastSyncAt) > 3 * 86400e3;
-    const when = s.status === "login_required" ? `로그인 필요 · ${ago(s.lastSyncAt)}` : ago(s.lastSyncAt);
-    return `<tr><td><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)}</a></td><td class="num">${fmt(live.get(s.id) || 0)}</td><td class="${stale || s.status === "login_required" ? "bad" : ""}">${esc(when)}</td></tr>`;
+    const w = s.status === "login_required" ? `로그인 필요 · ${ago(s.lastSyncAt)}` : ago(s.lastSyncAt);
+    return `<tr><td><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)}</a></td><td class="num">${fmt(live.get(s.id) || 0)}</td><td class="${stale || s.status === "login_required" ? "bad" : ""}">${esc(w)}</td><td>${esc(METHOD[s.method] || s.method || "")}</td></tr>`;
   }).join("");
-  $("#sourcesDlg").showModal();
+  const hasToken = !!getToken();
+  $("#tokenBox").hidden = hasToken;
+  $("#forgetToken").hidden = !hasToken;
+  loadRuns();
 }
-$("#closeSrc").onclick = () => $("#sourcesDlg").close();
+
+async function loadRuns() {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/runs?per_page=5`, { cache: "no-cache" });
+    if (!res.ok) throw new Error(res.status);
+    const j = await res.json();
+    const label = (r) => r.status !== "completed" ? ["wait", "실행 중"] : r.conclusion === "success" ? ["ok", "성공"] : ["bad", "실패"];
+    $("#runs").innerHTML = `<p>GitHub 최근 실행</p>` + (j.workflow_runs || []).map((r) => {
+      const [cls, txt] = label(r);
+      return `<div><span>${esc(new Date(r.created_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }))} · ${r.event === "schedule" ? "자동" : "수동"}</span><a class="${cls}" href="${esc(r.html_url)}" target="_blank" rel="noopener noreferrer">${txt}</a></div>`;
+    }).join("");
+  } catch {
+    $("#runs").innerHTML = `<p>GitHub 실행 기록을 불러오지 못했어요.</p>`;
+  }
+}
+
+$("#runSync").onclick = async () => {
+  const input = $("#ghToken").value.trim();
+  const token = getToken() || input;
+  if (!token) { $("#runMsg").textContent = "GitHub 토큰을 먼저 넣어 주세요. (이 저장소의 Actions 쓰기 권한만 있는 토큰이면 돼요)"; return; }
+  $("#runSync").disabled = true;
+  $("#runMsg").textContent = "실행 요청 중…";
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/dispatches`, {
+      method: "POST",
+      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" },
+      body: JSON.stringify({ ref: "main" }),
+    });
+    if (res.status === 401 || res.status === 403 || res.status === 404) throw new Error("토큰이 맞지 않거나 권한이 없어요. Actions 쓰기 권한이 있는지 확인해 주세요.");
+    if (res.status !== 204) throw new Error(`GitHub 응답 ${res.status}`);
+    if (input) { try { localStorage.setItem(TOKEN_KEY, input); } catch {} $("#ghToken").value = ""; }
+    $("#runMsg").textContent = "수집을 시작했어요. 5분쯤 뒤 새로고침하면 반영돼요.";
+    renderAdmin();
+    setTimeout(loadRuns, 5000);
+  } catch (err) {
+    $("#runMsg").textContent = err.message;
+  } finally {
+    $("#runSync").disabled = false;
+  }
+};
+$("#forgetToken").onclick = () => { try { localStorage.removeItem(TOKEN_KEY); } catch {} $("#runMsg").textContent = "이 브라우저에서 토큰을 지웠어요."; renderAdmin(); };
+addEventListener("hashchange", () => { if (location.hash === "#admin") { $("#tab-admin").hidden = false; switchView("admin"); } });
 
 let toastTimer;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 1800); }
