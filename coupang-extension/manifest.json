@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "쿠팡 리뷰 작성기 도우미",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "쿠팡 주문목록과 상품평을 자동으로 읽어 리뷰 작성기에 채워 줘요. 쿠팡에 글을 쓰거나 누르는 일은 하지 않아요.",
   "permissions": ["tabs", "scripting", "storage"],
   "host_permissions": ["https://*.coupang.com/*"],

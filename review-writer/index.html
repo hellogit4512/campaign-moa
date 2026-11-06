@@ -670,8 +670,24 @@ function coupangBookmarklet(target) {
         else window.open(`${target}#reviews=${pack(payload)}`, "_blank");
       }, 1200);
     };
+    // 정렬을 베스트순(추천순)으로 바꾼 뒤 다시 읽어서 보낸다. 기본은 최신순이다.
+    // coupang-extension/extract.js 의 sortBest 와 같은 규칙.
+    const sortBestThenSend = async (list) => {
+      const SORT = /^(베스트순|추천순|도움순|랭킹순|도움이\s*많은\s*순)$/;
+      const el = [...document.querySelectorAll("button, a, li, label, span, div")].find((e) => !e.children.length && SORT.test(clean(e.textContent)));
+      if (el) {
+        const firstId = () => { const h = document.querySelector(".js_reviewArticleHelpfulContainer, article [data-review-id]"); return h && h.getAttribute("data-review-id"); };
+        const before = firstId();
+        (el.closest("button, a, li, label") || el).click();
+        for (let i = 0; i < 6; i++) { await new Promise((r) => setTimeout(r, 500)); if (firstId() && firstId() !== before) break; }
+        await new Promise((r) => setTimeout(r, 400));
+        const again = grab();
+        if (again.length) list = again;
+      }
+      send(list);
+    };
     let found = grab();
-    if (found.length) { send(found); return; }
+    if (found.length) { sortBestThenSend(found); return; }
     // 상품평이 아직 안 불러와졌으면 '상품평' 탭을 눌러 불러온 뒤 다시 읽는다
     const tab = [...document.querySelectorAll("a, li, button")].find((e) => /^상품평\s*(\([\d,]+\))?$/.test(clean(e.textContent)));
     if (tab) tab.click();
@@ -681,7 +697,7 @@ function coupangBookmarklet(target) {
       found = grab();
       if (found.length || ++tries > 10) {
         clearInterval(timer);
-        if (found.length) send(found);
+        if (found.length) sortBestThenSend(found);
         else alert("상품평을 못 찾았어요. 상품평이 보이게 아래로 내린 뒤 다시 눌러 주세요.");
       }
     }, 800);

@@ -1,6 +1,7 @@
 // 쿠팡 리뷰 작성기 도우미 — 버튼 한 번으로 주문목록과 각 상품의 상품평을 읽어 리뷰 작성기로 보낸다.
 // 내 크롬의 쿠팡 로그인 그대로, 뒤쪽 탭 하나를 열어 페이지를 차례로 연다 (사람이 보는 것과 같은 방식).
 // 쿠팡에 부담을 주지 않도록 상품 사이에 몇 초씩 쉬고, 한 번 읽은 상품평은 7일 동안 다시 읽지 않는다.
+// (1.0.1: 상품평을 베스트순으로 읽게 바뀌어 저장 이름을 rwReviewCacheBest 로 바꿨다 → 예전 최신순 캐시는 안 씀)
 const WRITER = "https://hellogit4512.github.io/campaign-moa/review-writer/";
 const ORDER_LIST = "https://mc.coupang.com/ssr/desktop/order/list";
 const REVIEW_TTL = 7 * 24 * 3600 * 1000;
@@ -53,9 +54,9 @@ async function collect(reportTabId) {
     const orders = list.orders || [];
     if (!orders.length) { say(reportTabId, "주문을 못 찾았어요. 쿠팡 화면이 바뀌었을 수 있어요.", { error: true }); return; }
 
-    const { rwReviewCache = {} } = await chrome.storage.local.get("rwReviewCache");
+    const { rwReviewCacheBest = {} } = await chrome.storage.local.get("rwReviewCacheBest");
     const now = Date.now();
-    const todo = [...new Map(orders.map((o) => [o.vid, o])).values()].filter((o) => !(rwReviewCache[o.vid] && now - rwReviewCache[o.vid].at < REVIEW_TTL));
+    const todo = [...new Map(orders.map((o) => [o.vid, o])).values()].filter((o) => !(rwReviewCacheBest[o.vid] && now - rwReviewCacheBest[o.vid].at < REVIEW_TTL));
     for (const [i, o] of todo.entries()) {
       say(reportTabId, `상품평 읽는 중 (${i + 1}/${todo.length}) ${o.name.slice(0, 30)}…`);
       await go(work.id, o.url);
@@ -68,14 +69,14 @@ async function collect(reportTabId) {
         r = await run(work.id, "reviews").catch(() => null);
         if (back != null) await chrome.tabs.update(back, { active: true }).catch(() => {});
       }
-      rwReviewCache[o.vid] = { at: Date.now(), reviews: (r && r.reviews) || [] };
-      await chrome.storage.local.set({ rwReviewCache });
+      rwReviewCacheBest[o.vid] = { at: Date.now(), reviews: (r && r.reviews) || [] };
+      await chrome.storage.local.set({ rwReviewCacheBest });
       await sleep(2500 + Math.random() * 2000);
     }
 
     const data = {
       fetchedAt: new Date().toISOString(),
-      orders: orders.map((o) => ({ ...o, reviews: (rwReviewCache[o.vid] && rwReviewCache[o.vid].reviews) || [] })),
+      orders: orders.map((o) => ({ ...o, reviews: (rwReviewCacheBest[o.vid] && rwReviewCacheBest[o.vid].reviews) || [] })),
     };
     await chrome.storage.local.set({ rwData: data });
     const withReviews = data.orders.filter((o) => o.reviews.length).length;

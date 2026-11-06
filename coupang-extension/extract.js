@@ -79,6 +79,19 @@
         return { rating: stars || null, headline: headline.slice(0, 120), body: body.slice(0, 1500) };
       }).filter((r) => r.body.length > 10);
     };
+    // 정렬을 베스트순(추천순)으로 바꾼다. 기본은 최신순이라 짧은 리뷰가 먼저 나온다.
+    // 버튼 글자로 찾고, 눌러서 첫 리뷰가 바뀌면 다시 불러온 것으로 본다.
+    const sortBest = async () => {
+      const SORT = /^(베스트순|추천순|도움순|랭킹순|도움이\s*많은\s*순)$/;
+      const el = [...document.querySelectorAll("button, a, li, label, span, div")].find((e) => !e.children.length && SORT.test(clean(e.textContent)));
+      if (!el) return false;
+      const firstId = () => { const h = document.querySelector(".js_reviewArticleHelpfulContainer, article [data-review-id]"); return h && h.getAttribute("data-review-id"); };
+      const before = firstId();
+      (el.closest("button, a, li, label") || el).click();
+      for (let i = 0; i < 6; i++) { await sleep(500); if (firstId() && firstId() !== before) break; }
+      await sleep(400);
+      return true;
+    };
     let found = grab();
     if (!found.length) {
       // 상품평은 화면에 보여야 불러온다: '상품평' 탭을 누르고 그 근처로 내린다
@@ -92,7 +105,12 @@
         found = grab();
       }
     }
-    return { title: document.title, url: location.href, product: productName, blocked: /access denied/i.test(document.title), reviews: found.slice(0, 20) };
+    let sort = "기본";
+    if (found.length && (await sortBest())) {
+      const again = grab();
+      if (again.length) { found = again; sort = "베스트순"; }
+    }
+    return { title: document.title, url: location.href, product: productName, sort, blocked: /access denied/i.test(document.title), reviews: found.slice(0, 20) };
   }
 
   window.__rw = { orders, reviews };
