@@ -31,7 +31,8 @@
 ## 쿠팡 리뷰 작성기
 - 주소: https://hellogit4512.github.io/campaign-moa/review-writer/ (PC에서는 `리뷰작성기.bat`으로도 열려요)
 - 직접 찍은 사진 + 메모(비워도 됨) + 별점 + 쿠팡 배송 정보를 Gemini API에 보내 템플릿 섹션에 맞춘 제목·본문을 받아요
-- Gemini API 키는 Google AI Studio(https://aistudio.google.com/apikey)에서 무료로 만들고 화면의 "Gemini API 키"에 넣어요. 키는 그 브라우저에만 저장돼요. 무료 키는 하루·분당 사용 횟수 제한이 있어요
+- Gemini API 키는 Google AI Studio(https://aistudio.google.com/apikey)에서 무료로 만들고 화면의 "Gemini API 키"에 넣어요 (AIza…, AQ.… 둘 다 돼요). 키는 그 브라우저에만 저장돼요. 무료 키는 하루·분당 사용 횟수 제한이 있어요
+- 모델 기본값은 Gemini Flash-Lite(빠름). 다른 모델이 바쁘면(503) 자동으로 Flash-Lite로 다시 써요. gemini-flash-latest 는 2026-11-06 시험 때 답이 오지 않아 목록에서 뺐어요
 - 한도에 걸리면 "API 없이 제미나이 앱에서 쓰기"로 지시문을 복사해 gemini.google.com 에 붙여넣을 수 있어요
 - 배송 정보: 쿠팡 주문 상세를 Ctrl+A, Ctrl+C로 복사해 붙여넣거나(이름·연락처·주소 줄은 자동으로 지움), 아래 즐겨찾기 버튼을 써요
 - **쿠팡 주문 가져오기**: 화면의 "쿠팡 → 리뷰 작성기" 버튼을 즐겨찾기 막대로 끌어다 놓고, 쿠팡 주문목록 화면에서 누르면 최근 주문이 리뷰 작성기에 떠요
