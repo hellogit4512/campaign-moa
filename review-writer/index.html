@@ -527,6 +527,7 @@ function orderToShip(o) {
     `상품: ${o.name}${o.option ? `, ${o.option}` : ""}`,
     d ? `${d[0]}. ${d[1]}. ${d[2]} 주문` : "",
     o.status ? `배송 상태: ${o.status}` : "",
+    o.arrival ? `도착: ${o.arrival}` : "",
     o.delivery ? `배송 방식: ${o.delivery}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -534,7 +535,7 @@ function renderOrders() {
   $("#orders").innerHTML = ORDERS.map((o, i) => `
     <button type="button" class="order" data-i="${i}" aria-pressed="false">
       ${o.imageUrl ? `<img src="${esc(o.imageUrl)}" alt="" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : "<img alt=''>"}
-      <span><span class="nm">${esc(o.name)}</span><span class="meta">${esc([o.orderDate, o.status, o.delivery].filter(Boolean).join(" · "))}</span></span>
+      <span><span class="nm">${esc(o.name)}</span><span class="meta">${esc([o.orderDate && `${o.orderDate} 주문`, o.arrival || o.status, o.delivery].filter(Boolean).join(" · "))}</span></span>
     </button>`).join("");
 }
 $("#orders").onclick = (e) => {
@@ -548,43 +549,54 @@ $("#orders").onclick = (e) => {
 // 즐겨찾기 버튼(북마클릿). 쿠팡 주문목록 화면에서 돌아가며, 주문을 읽어
 // 리뷰 작성기 주소의 # 뒤에 담아 새 탭으로 연다 (# 뒤는 서버로 전송되지 않음).
 // 이 함수는 쿠팡 화면 안에서 혼자 돌기 때문에 바깥 변수를 쓰면 안 된다.
+// 쿠팡 주문목록 구조 (2026-11 확인): 주문마다 '2026. 11. 4 주문' 머리글 + 표(tr) 한 줄에
+// '배송완료' · '11/4(수) 도착' · 상품 링크(sdp/link?vendorItemId=…&imagePath=…&sourceType=…product_title).
+// 클래스 이름은 빌드마다 바뀌어서 쓰지 않는다. 화면 아래 '최근 본 상품'(/vp/products/)은 무시한다.
 function coupangBookmarklet(target) {
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const ORDER_DATE = /(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?\s*주문/;
-  const STATUS = /(\d{1,2}\/\d{1,2}\s*\([월화수목금토일]\)\s*(?:도착|도착\s*완료|도착\s*예정|출발)[^\n]{0,8}|배송\s*완료|도착\s*완료|배송\s*중|배송\s*준비\s*중|결제\s*완료|구매\s*확정|취소\s*완료|반품[^\n]{0,6}|교환[^\n]{0,6})/;
-  const KIND = /(로켓와우|로켓프레시|로켓배송|로켓직구|로켓그로스|판매자로켓|새벽\s*도착|당일\s*도착|일반배송|판매자배송)/;
+  const STATUS = /(배송\s*완료|배송\s*중|배송\s*준비\s*중|상품\s*준비\s*중|결제\s*완료|구매\s*확정|주문\s*취소|취소\s*완료|반품\s*[가-힣]*|교환\s*[가-힣]*)/;
+  const ARRIVE = /(\d{1,2}\/\d{1,2}\s*\([월화수목금토일]\)\s*(?:도착\s*예정|도착|출발))/;
+  const KIND = /(로켓와우|로켓프레시|로켓배송|로켓직구|판매자로켓|새벽\s*도착|일반배송|판매자배송)/;
+  // 배지 그림 이름 예: RDS_LOGO_WOW_TODAY_MD, RDS_LOGO_ROCKET_TOMORROW_MD, RDS_LOGO_WOW_DAWN_MD, ROCKET_FRESH
+  const badge = (alt) => {
+    if (!alt || !/RDS_LOGO|ROCKET/i.test(alt)) return null;
+    if (/FRESH/i.test(alt)) return "로켓프레시";
+    if (/JIKGU|GLOBAL/i.test(alt)) return "로켓직구";
+    if (/SELLER|GROWTH/i.test(alt)) return "판매자로켓";
+    if (/DAWN/i.test(alt)) return "로켓배송 (새벽도착)";
+    if (/TODAY/i.test(alt)) return "로켓배송 (오늘도착)";
+    if (/TOMORROW/i.test(alt)) return "로켓배송 (내일도착)";
+    return "로켓배송";
+  };
   if (!/(^|\.)coupang\.com$/.test(location.hostname)) { alert("쿠팡 마이쿠팡 → 주문목록 화면에서 눌러 주세요."); return; }
+  let anchors = [...document.querySelectorAll('a[href*="sdp/link"][href*="product_title"]')];
+  if (!anchors.length) anchors = [...document.querySelectorAll('a[href*="sdp/link"]')].filter((a) => clean(a.innerText).length > 3);
   const byKey = new Map();
-  for (const a of document.querySelectorAll('a[href*="/products/"]')) {
-    const href = a.href.split("#")[0];
-    const id = (href.match(/products\/(\d+)/) || [])[1];
-    if (!id) continue;
-    let box = a, item = null;
-    for (let i = 0; i < 12 && box.parentElement; i++) {
-      box = box.parentElement;
-      const t = box.innerText || "";
-      if (!item && box.querySelector("img") && STATUS.test(t)) item = box;
-      if (ORDER_DATE.test(t)) break;
-    }
-    const itemBox = item || a.parentElement;
-    const itemText = itemBox.innerText || "";
+  for (const a of anchors) {
+    const name = clean(a.innerText);
+    if (name.length < 2) continue;
+    let url; try { url = new URL(a.href); } catch { continue; }
+    const vid = url.searchParams.get("vendorItemId") || a.href;
+    const row = a.closest("tr") || a.parentElement;
+    const rowText = row.innerText || "";
     let orderDate = null;
-    for (let el = itemBox; el; el = el.parentElement) {
+    for (let el = row; el; el = el.parentElement) {
       const m = (el.innerText || "").match(ORDER_DATE);
       if (m) { orderDate = `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`; break; }
     }
-    const img = itemBox.querySelector("img");
-    const names = [...itemBox.querySelectorAll(`a[href*="products/${id}"]`)].map((x) => clean(x.innerText)).filter((s) => s.length > 3);
-    const name = names.sort((x, y) => y.length - x.length)[0] || clean(img && img.alt);
-    if (!name) continue;
-    const optLine = itemText.split("\n").map(clean).find((l) => l.startsWith(name) && l.length > name.length + 1) || "";
-    const key = `${id}|${orderDate}|${name}`;
+    const key = `${vid}|${orderDate}`;
     if (byKey.has(key)) continue;
+    const imgPath = url.searchParams.get("imagePath");
+    const img = row.querySelector(`a[href*="${vid}"][href*="product_image"] img`);
+    const BADGE = 'img[alt^="RDS_LOGO"], img[alt*="ROCKET"]';
+    const badgeImg = a.querySelector(BADGE) || row.querySelector(BADGE);
     byKey.set(key, {
-      name, option: optLine.slice(name.length).replace(/^[,\s]+/, "") || null, orderDate,
-      status: clean((itemText.match(STATUS) || [])[1]) || null,
-      delivery: clean((itemText.match(KIND) || [])[1]) || null,
-      imageUrl: (img && (img.currentSrc || img.src)) || null,
+      name, orderDate,
+      status: clean((rowText.match(STATUS) || [])[1]).replace(/\s+/g, "") || null,
+      arrival: clean((rowText.match(ARRIVE) || [])[1]) || null,
+      delivery: badge(badgeImg && badgeImg.alt) || clean((rowText.match(KIND) || [])[1]) || null,
+      imageUrl: (img && (img.currentSrc || img.src)) || (imgPath && /^https:\/\//.test(imgPath) ? imgPath : null),
     });
   }
   const orders = [...byKey.values()].slice(0, 40);
@@ -612,7 +624,7 @@ function sanitize(j) {
   if (!j || !Array.isArray(j.orders)) return null;
   const str = (v) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
   const orders = j.orders.map((o) => ({
-    name: str(o.name), option: str(o.option), orderDate: str(o.orderDate), status: str(o.status), delivery: str(o.delivery),
+    name: str(o.name), option: str(o.option), orderDate: str(o.orderDate), status: str(o.status), arrival: str(o.arrival), delivery: str(o.delivery),
     imageUrl: typeof o.imageUrl === "string" && o.imageUrl.startsWith("https://") ? o.imageUrl.slice(0, 500) : null,
   })).filter((o) => o.name).slice(0, 40);
   return orders.length ? { fetchedAt: str(j.fetchedAt), orders } : null;
