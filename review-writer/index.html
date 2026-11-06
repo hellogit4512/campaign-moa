@@ -98,8 +98,22 @@ select { width: 100%; font: inherit; color: var(--ink); background: var(--bg); b
           <h2>최근 쿠팡 주문 <span class="count" id="ordersAt"></span></h2>
           <button class="btn small" id="clearOrders" hidden>목록 지우기</button>
         </div>
+        <div id="extBox" hidden>
+          <button class="btn" id="extCollect" style="width:100%">쿠팡에서 주문·상품평 자동으로 가져오기</button>
+          <div class="ship-info" id="extStatus">확장 프로그램이 연결됐어요. 쿠팡에 로그인돼 있으면 뒤쪽 탭에서 알아서 읽어 와요.</div>
+        </div>
         <div id="ordersEmpty">
-          <p class="hint">쿠팡 주문목록을 버튼 한 번으로 가져올 수 있어요 (PC 크롬·엣지).</p>
+          <details id="extHow" style="margin-bottom:10px">
+            <summary>완전 자동: 크롬 확장 프로그램 설치 (처음 한 번)</summary>
+            <ol class="steps" style="font-size:14px">
+              <li>크롬 주소창에 <code>chrome://extensions</code> 입력</li>
+              <li>오른쪽 위 <b>개발자 모드</b> 켜기</li>
+              <li><b>압축해제된 확장 프로그램을 로드합니다</b> → <code>D:\blog\campaign-moa\coupang-extension</code> 폴더 선택</li>
+              <li>이 페이지를 새로고침하면 위에 <b>자동으로 가져오기</b> 버튼이 생겨요</li>
+            </ol>
+            <p class="hint">버튼 한 번이면 주문목록과 주문한 상품들의 상품평을 뒤쪽 탭에서 차례로 읽어 와요. 쿠팡에 글을 쓰거나 다른 걸 누르지는 않아요.</p>
+          </details>
+          <p class="hint">확장 프로그램 없이 쓰려면, 쿠팡 주문목록을 버튼 한 번으로 가져올 수 있어요 (PC 크롬·엣지).</p>
           <ol class="steps" style="font-size:14px">
             <li>즐겨찾기 막대가 안 보이면 <b>Ctrl+Shift+B</b></li>
             <li>아래 버튼을 즐겨찾기 막대로 <b>끌어다 놓기</b> (처음 한 번만)<br>
@@ -582,7 +596,8 @@ $("#orders").onclick = (e) => {
   document.querySelectorAll(".order").forEach((x) => x.setAttribute("aria-pressed", x === b));
   $("#product").value = o.name + (o.option ? ` (${o.option})` : "");
   $("#ship").value = orderToShip(o);
-  $("#refReviews").value = ""; // 다른 상품의 참고 리뷰가 섞이지 않게
+  // 확장 프로그램이 가져온 그 상품의 상품평이 있으면 채우고, 없으면 비운다 (다른 상품 리뷰가 섞이지 않게)
+  $("#refReviews").value = o.reviews && o.reviews.length ? formatReviews(o.reviews) : "";
   const link = $("#productLink");
   link.hidden = !o.url; if (o.url) link.href = o.url;
   refresh(); toast("상품명과 배송 정보를 채웠어요");
@@ -728,11 +743,22 @@ function readHash(kind) {
 }
 const readHashOrders = () => readHash("orders");
 
+// 쿠팡에서 읽어 온 상품평 목록 정리 (밖에서 온 데이터라 글자만 남기고 길이를 자른다)
+function cleanReviewList(list) {
+  if (!Array.isArray(list)) return [];
+  const str = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, n) : "");
+  // 리뷰당 600자로 잘라야 10개가 참고 리뷰 최대 7,000자 안에 들어간다
+  return list.map((r) => ({ rating: Number(r && r.rating) || null, headline: str(r && r.headline, 120), body: str(r && r.body, 600) })).filter((r) => r.body).slice(0, 20);
+}
+function formatReviews(list) {
+  return list.map((r) => [r.rating ? `별점 ${r.rating}점` : "", r.headline, r.body].filter(Boolean).join(" / ")).join("\n");
+}
+
 // 상품 페이지에서 즐겨찾기 버튼으로 보낸 리뷰를 참고 리뷰 칸에 채운다
 function applyReviews(d) {
   if (!d || !Array.isArray(d.reviews)) return false;
   const str = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, n) : "");
-  const reviews = d.reviews.map((r) => ({ rating: Number(r.rating) || null, headline: str(r.headline, 120), body: str(r.body, 600) })).filter((r) => r.body).slice(0, 20);  // 리뷰당 600자로 잘라야 10개가 7,000자 안에 들어간다
+  const reviews = cleanReviewList(d.reviews);
   if (!reviews.length) return false;
   const product = str(d.product, 200);
   // 그 상품의 주문을 찾아 먼저 고른다 (주문을 고르면 참고 리뷰 칸이 비워지므로 순서 중요)
@@ -740,7 +766,7 @@ function applyReviews(d) {
   const i = product ? ORDERS.findIndex((o) => norm(product).includes(norm(o.name)) || norm(o.name).includes(norm(product))) : -1;
   if (i >= 0) document.querySelectorAll(".order")[i]?.click();
   else if (product && !$("#product").value.trim()) $("#product").value = product;
-  $("#refReviews").value = reviews.map((r) => [r.rating ? `별점 ${r.rating}점` : "", r.headline, r.body].filter(Boolean).join(" / ")).join("\n");
+  $("#refReviews").value = formatReviews(reviews);
   refresh();
   toast(`상품 리뷰 ${reviews.length}개를 가져왔어요`);
   $("#refReviews").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -757,6 +783,7 @@ function sanitize(j) {
     name: str(o.name), option: str(o.option), orderDate: str(o.orderDate), status: str(o.status), arrival: str(o.arrival), delivery: str(o.delivery),
     imageUrl: typeof o.imageUrl === "string" && o.imageUrl.startsWith("https://") ? o.imageUrl.slice(0, 500) : null,
     url: typeof o.url === "string" && /^https:\/\/(mc|www)\.coupang\.com\//.test(o.url) ? o.url.slice(0, 600) : null,
+    reviews: cleanReviewList(o.reviews),
   })).filter((o) => o.name).slice(0, 40);
   return orders.length ? { fetchedAt: str(j.fetchedAt), orders } : null;
 }
@@ -775,6 +802,31 @@ $("#clearOrders").onclick = () => { store.del(ORDERS_KEY); showOrders(null); };
   showOrders(fresh || saved);
   applyReviews(readHash("reviews"));
 })();
+
+// ── 크롬 확장 프로그램(coupang-extension) 연결: 주문목록과 상품평을 자동으로 가져온다 ──
+window.addEventListener("message", (e) => {
+  if (e.source !== window || e.origin !== location.origin || !e.data) return;
+  const m = e.data;
+  if (m.type === "rw-ext-ready") {
+    $("#extBox").hidden = false; $("#extHow").hidden = true;
+  } else if (m.type === "rw-ext-progress") {
+    $("#extStatus").textContent = m.text;
+    $("#extStatus").style.color = m.error ? "var(--danger)" : "";
+    if (m.done || m.error) { $("#extCollect").disabled = false; $("#extCollect").textContent = "쿠팡에서 주문·상품평 자동으로 가져오기"; }
+  } else if (m.type === "rw-ext-data") {
+    const j = sanitize(m.data);
+    if (!j) return;
+    store.set(ORDERS_KEY, JSON.stringify(j));
+    showOrders(j);
+    if (!m.cached) toast(`주문 ${j.orders.length}건과 상품평을 가져왔어요`);
+  }
+});
+$("#extCollect").onclick = () => {
+  $("#extCollect").disabled = true;
+  $("#extCollect").innerHTML = '<span class="spinner"></span>가져오는 중…';
+  $("#extStatus").style.color = "";
+  window.postMessage({ type: "rw-ext-collect" }, location.origin);
+};
 
 renderStars(); renderLength(); refresh();
 </script>
