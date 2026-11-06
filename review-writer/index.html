@@ -104,7 +104,8 @@ select { width: 100%; font: inherit; color: var(--ink); background: var(--bg); b
             <li>즐겨찾기 막대가 안 보이면 <b>Ctrl+Shift+B</b></li>
             <li>아래 버튼을 즐겨찾기 막대로 <b>끌어다 놓기</b> (처음 한 번만)<br>
               <a class="btn small bm" id="bookmarklet" href="#" title="즐겨찾기 막대로 끌어다 놓으세요">쿠팡 → 리뷰 작성기</a></li>
-            <li>쿠팡에 로그인하고 <b>마이쿠팡 → 주문목록</b>을 연 뒤, 즐겨찾기의 그 버튼을 누르기</li>
+            <li>쿠팡에 로그인하고 <b>마이쿠팡 → 주문목록</b>을 연 뒤, 즐겨찾기의 그 버튼을 누르기<br>
+              <span class="hint">같은 버튼을 상품 페이지에서 누르면 그 상품의 상품평을 가져와요</span></li>
           </ol>
           <p class="hint">주문목록 화면에서 상품명·옵션·주문일·배송 상태만 읽어요. 이름·주소·연락처·결제 정보는 읽지 않고, 가져온 목록은 이 브라우저에만 저장돼요.</p>
         </div>
@@ -133,8 +134,9 @@ select { width: 100%; font: inherit; color: var(--ink); background: var(--bg); b
         <textarea id="notes" rows="4" placeholder="예: 생각보다 크고 튼튼함. 얼음이 오래감. 뚜껑이 좀 뻑뻑"></textarea>
 
         <label class="f" for="refReviews">상품 상세의 다른 리뷰 <span class="hint">선택 · 붙여넣으면 더 실감 나게 써요</span></label>
-        <p class="hint">쿠팡 상품 페이지의 <b>상품평</b>에서 리뷰 몇 개를 마우스로 끌어 선택해 복사(Ctrl+C)한 뒤 붙여넣으세요. 작성자 이름·날짜는 자동으로 빼고, 특징만 참고해서 문장은 새로 써요.
-          <a id="productLink" href="#" target="_blank" rel="noopener" hidden>→ 고른 상품 페이지 열기</a></p>
+        <p class="hint"><b>자동:</b> 아래 링크로 상품 페이지를 열고, 거기서 즐겨찾기의 <b>쿠팡 → 리뷰 작성기</b> 버튼을 누르면 상품평이 여기에 채워져요.
+          <b>수동:</b> 상품평을 복사해 붙여넣어도 돼요. 작성자 이름·날짜는 빼고, 특징만 참고해서 문장은 새로 써요.
+          <a id="productLink" href="#" target="_blank" rel="opener" hidden>→ 고른 상품 페이지 열기</a></p>
         <textarea id="refReviews" rows="4" placeholder="여기에 리뷰 붙여넣기 (Ctrl+V)"></textarea>
         <div class="ship-info" id="refInfo"></div>
 
@@ -274,7 +276,7 @@ function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;
 const REVIEW_NOISE = /^(도움이\s*돼요|도움\s*안\s*돼요|신고하기|더보기|접기|판매자|구매\s*옵션|상품평\s*(운영원칙|정렬)|베스트순|최신순|별점|사진|동영상|\d+\s*명에게\s*도움.*|[가-힣A-Za-z]{1,2}\*+[가-힣A-Za-z*]*|\d{4}\.\d{1,2}\.\d{1,2}\.?|\d+)$/;
 function cleanReviews(raw) {
   const lines = raw.split(/\r?\n/).map((l) => l.replace(/\s+/g, " ").trim()).filter((l) => l && !REVIEW_NOISE.test(l));
-  return [...new Set(lines)].join("\n").slice(0, 5000);
+  return [...new Set(lines)].join("\n").slice(0, 7000);
 }
 
 function buildPrompt(api = false, hasPhotos = true) {
@@ -358,7 +360,7 @@ function refresh() {
     $("#shipInfo").innerHTML = (s.length ? s.join(" · ") : "날짜를 못 찾았어요 — 그래도 제미나이가 읽어요") + ' · <span class="ok">이름·연락처·주소 지움</span>';
   } else $("#shipInfo").textContent = "";
   const refs = cleanReviews($("#refReviews").value);
-  $("#refInfo").textContent = refs ? `참고 리뷰 ${refs.split("\n").length}줄 · ${refs.length.toLocaleString()}자 (작성자·날짜 뺌, 최대 5,000자)` : "";
+  $("#refInfo").textContent = refs ? `참고 리뷰 ${refs.split("\n").length}줄 · ${refs.length.toLocaleString()}자 (작성자·날짜 뺌, 최대 7,000자)` : "";
   const text = buildPrompt();
   $("#prompt").value = text;
   $("#count").textContent = `${text.length.toLocaleString()}자`;
@@ -608,7 +610,70 @@ function coupangBookmarklet(target) {
     if (/TOMORROW/i.test(alt)) return "로켓배송 (내일도착)";
     return "로켓배송";
   };
-  if (!/(^|\.)coupang\.com$/.test(location.hostname)) { alert("쿠팡 마이쿠팡 → 주문목록 화면에서 눌러 주세요."); return; }
+  if (!/(^|\.)coupang\.com$/.test(location.hostname)) { alert("쿠팡 마이쿠팡 → 주문목록 화면이나 상품 페이지에서 눌러 주세요."); return; }
+  const pack = (obj) => {
+    const bytes = new TextEncoder().encode(JSON.stringify(obj));
+    let bin = ""; for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  };
+  const notice = (msg) => {
+    const d = document.createElement("div");
+    d.textContent = msg;
+    d.style.cssText = "position:fixed;left:50%;top:24px;transform:translateX(-50%);z-index:2147483647;background:#151D2E;color:#fff;padding:14px 22px;border-radius:12px;font:600 15px/1.5 sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.3)";
+    document.body.appendChild(d); setTimeout(() => d.remove(), 5000);
+  };
+
+  // ── 상품 페이지: 상품평을 읽어 리뷰 작성기로 보낸다 ──
+  // 구조 (2026-11 확인): 리뷰 하나 = <article>, 그 안에 별(i.twc-bg-full-star), 한 줄 제목 div,
+  // 본문 div, 그리고 '도움이 돼요' 칸(.js_reviewArticleHelpfulContainer[data-review-id]).
+  if (/^\/vp\/products\//.test(location.pathname)) {
+    const productName = clean(document.title.replace(/\s*\|\s*쿠팡!?\s*$/, "").replace(/\s+-\s+[^-]+$/, ""));
+    const grab = () => {
+      const helps = [...document.querySelectorAll(".js_reviewArticleHelpfulContainer, article [data-review-id]")];
+      const arts = [...new Set(helps.map((h) => h.closest("article")).filter(Boolean))];
+      return arts.map((a) => {
+        const help = a.querySelector(".js_reviewArticleHelpfulContainer, [data-review-id]");
+        const bodyEl = help && help.previousElementSibling;
+        const body = clean(bodyEl && bodyEl.innerText);
+        const prev = bodyEl && bodyEl.previousElementSibling;
+        let headline = prev && !prev.querySelector("img") && !prev.children.length ? clean(prev.innerText) : "";
+        if (headline && (productName.includes(headline) || headline.includes(productName))) headline = ""; // 구매 옵션 줄
+        const stars = a.querySelectorAll('i[class*="full-star"]').length + a.querySelectorAll('i[class*="half-star"]').length / 2;
+        return { rating: stars || null, headline: headline.slice(0, 120), body: body.slice(0, 1500) };
+      }).filter((r) => r.body.length > 10);
+    };
+    const send = (reviews) => {
+      const payload = { type: "rw-reviews", product: productName, reviews: reviews.slice(0, 20) };
+      let acked = false;
+      const onMsg = (e) => { if (e.data && e.data.type === "rw-reviews-ack") acked = true; };
+      window.addEventListener("message", onMsg);
+      // 리뷰 작성기에서 연 탭이면 그 탭으로 바로 보낸다
+      try { if (window.opener) window.opener.postMessage(payload, new URL(target).origin); } catch (e) {}
+      setTimeout(() => {
+        window.removeEventListener("message", onMsg);
+        if (acked) notice(`리뷰 ${payload.reviews.length}개를 리뷰 작성기로 보냈어요. 리뷰 작성기 탭으로 돌아가세요.`);
+        else window.open(`${target}#reviews=${pack(payload)}`, "_blank");
+      }, 1200);
+    };
+    let found = grab();
+    if (found.length) { send(found); return; }
+    // 상품평이 아직 안 불러와졌으면 '상품평' 탭을 눌러 불러온 뒤 다시 읽는다
+    const tab = [...document.querySelectorAll("a, li, button")].find((e) => /^상품평\s*(\([\d,]+\))?$/.test(clean(e.textContent)));
+    if (tab) tab.click();
+    notice("상품평을 불러오는 중이에요…");
+    let tries = 0;
+    const timer = setInterval(() => {
+      found = grab();
+      if (found.length || ++tries > 10) {
+        clearInterval(timer);
+        if (found.length) send(found);
+        else alert("상품평을 못 찾았어요. 상품평이 보이게 아래로 내린 뒤 다시 눌러 주세요.");
+      }
+    }, 800);
+    return;
+  }
+
+  // ── 주문목록: 최근 주문을 읽어 리뷰 작성기로 보낸다 ──
   // 주문 상품 링크만: sourceType=MyCoupang_my_orders_list_product_title.
   // 같은 화면의 '반품마켓'·추천 상품 칸도 sdp/link 를 쓰므로 sourceType 으로 걸러야 한다.
   const isOrderTitle = (a) => /my_?orders?_?list[^&]*product_title/i.test(a.href);
@@ -643,19 +708,17 @@ function coupangBookmarklet(target) {
     });
   }
   const orders = [...byKey.values()].slice(0, 40);
-  if (!orders.length) { alert("주문을 못 찾았어요. 마이쿠팡 → 주문목록 화면에서 눌러 주세요."); return; }
-  const bytes = new TextEncoder().encode(JSON.stringify({ fetchedAt: new Date().toISOString(), orders }));
-  let bin = ""; for (const b of bytes) bin += String.fromCharCode(b);
-  const b64 = btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  window.open(`${target}#orders=${b64}`, "_blank");
+  if (!orders.length) { alert("주문을 못 찾았어요. 마이쿠팡 → 주문목록 화면이나 상품 페이지에서 눌러 주세요."); return; }
+  window.open(`${target}#orders=${pack({ fetchedAt: new Date().toISOString(), orders })}`, "_blank");
 }
 const bm = $("#bookmarklet");
 bm.href = `javascript:(${encodeURIComponent(coupangBookmarklet.toString())})(${encodeURIComponent(JSON.stringify(location.origin + location.pathname))})`;
 bm.onclick = (e) => { e.preventDefault(); toast("누르지 말고 즐겨찾기 막대로 끌어다 놓아 주세요"); };
 
 const ORDERS_KEY = "review-writer:orders";
-function readHashOrders() {
-  const m = location.hash.match(/^#orders=([A-Za-z0-9_-]+)$/);
+// 주소 # 뒤의 데이터 (#orders=… 주문 목록, #reviews=… 상품 리뷰)를 읽고 주소에서 지운다
+function readHash(kind) {
+  const m = location.hash.match(new RegExp(`^#${kind}=([A-Za-z0-9_-]+)$`));
   if (!m) return null;
   history.replaceState(null, "", location.pathname + location.search);
   try {
@@ -663,6 +726,30 @@ function readHashOrders() {
     return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s), (c) => c.charCodeAt(0))));
   } catch { return null; }
 }
+const readHashOrders = () => readHash("orders");
+
+// 상품 페이지에서 즐겨찾기 버튼으로 보낸 리뷰를 참고 리뷰 칸에 채운다
+function applyReviews(d) {
+  if (!d || !Array.isArray(d.reviews)) return false;
+  const str = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, n) : "");
+  const reviews = d.reviews.map((r) => ({ rating: Number(r.rating) || null, headline: str(r.headline, 120), body: str(r.body, 600) })).filter((r) => r.body).slice(0, 20);  // 리뷰당 600자로 잘라야 10개가 7,000자 안에 들어간다
+  if (!reviews.length) return false;
+  const product = str(d.product, 200);
+  // 그 상품의 주문을 찾아 먼저 고른다 (주문을 고르면 참고 리뷰 칸이 비워지므로 순서 중요)
+  const norm = (s) => s.replace(/\s+/g, "");
+  const i = product ? ORDERS.findIndex((o) => norm(product).includes(norm(o.name)) || norm(o.name).includes(norm(product))) : -1;
+  if (i >= 0) document.querySelectorAll(".order")[i]?.click();
+  else if (product && !$("#product").value.trim()) $("#product").value = product;
+  $("#refReviews").value = reviews.map((r) => [r.rating ? `별점 ${r.rating}점` : "", r.headline, r.body].filter(Boolean).join(" / ")).join("\n");
+  refresh();
+  toast(`상품 리뷰 ${reviews.length}개를 가져왔어요`);
+  $("#refReviews").scrollIntoView({ behavior: "smooth", block: "center" });
+  return true;
+}
+window.addEventListener("message", (e) => {
+  if (!/^https:\/\/(www|mc)\.coupang\.com$/.test(e.origin) || !e.data || e.data.type !== "rw-reviews") return;
+  if (applyReviews(e.data)) { try { e.source.postMessage({ type: "rw-reviews-ack" }, e.origin); } catch {} }
+});
 function sanitize(j) {
   if (!j || !Array.isArray(j.orders)) return null;
   const str = (v) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
@@ -686,6 +773,7 @@ $("#clearOrders").onclick = () => { store.del(ORDERS_KEY); showOrders(null); };
   if (fresh) { store.set(ORDERS_KEY, JSON.stringify(fresh)); toast(`쿠팡 주문 ${fresh.orders.length}건을 가져왔어요`); }
   let saved = null; try { saved = sanitize(JSON.parse(store.get(ORDERS_KEY))); } catch {}
   showOrders(fresh || saved);
+  applyReviews(readHash("reviews"));
 })();
 
 renderStars(); renderLength(); refresh();
