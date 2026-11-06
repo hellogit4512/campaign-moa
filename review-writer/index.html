@@ -555,7 +555,7 @@ $("#orders").onclick = (e) => {
 function coupangBookmarklet(target) {
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const ORDER_DATE = /(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?\s*주문/;
-  const STATUS = /(배송\s*완료|배송\s*중|배송\s*준비\s*중|상품\s*준비\s*중|결제\s*완료|구매\s*확정|주문\s*취소|취소\s*완료|반품\s*[가-힣]*|교환\s*[가-힣]*)/;
+  const STATUS = /(배송\s*완료|배송\s*중|배송\s*준비\s*중|상품\s*준비\s*중|결제\s*완료|구매\s*확정|주문\s*취소|취소\s*완료|반품\s*(?:접수|진행\s*중|완료)|교환\s*(?:접수|진행\s*중|완료))/;
   const ARRIVE = /(\d{1,2}\/\d{1,2}\s*\([월화수목금토일]\)\s*(?:도착\s*예정|도착|출발))/;
   const KIND = /(로켓와우|로켓프레시|로켓배송|로켓직구|판매자로켓|새벽\s*도착|일반배송|판매자배송)/;
   // 배지 그림 이름 예: RDS_LOGO_WOW_TODAY_MD, RDS_LOGO_ROCKET_TOMORROW_MD, RDS_LOGO_WOW_DAWN_MD, ROCKET_FRESH
@@ -570,15 +570,19 @@ function coupangBookmarklet(target) {
     return "로켓배송";
   };
   if (!/(^|\.)coupang\.com$/.test(location.hostname)) { alert("쿠팡 마이쿠팡 → 주문목록 화면에서 눌러 주세요."); return; }
-  let anchors = [...document.querySelectorAll('a[href*="sdp/link"][href*="product_title"]')];
-  if (!anchors.length) anchors = [...document.querySelectorAll('a[href*="sdp/link"]')].filter((a) => clean(a.innerText).length > 3);
+  // 주문 상품 링크만: sourceType=MyCoupang_my_orders_list_product_title.
+  // 같은 화면의 '반품마켓'·추천 상품 칸도 sdp/link 를 쓰므로 sourceType 으로 걸러야 한다.
+  const isOrderTitle = (a) => /my_?orders?_?list[^&]*product_title/i.test(a.href);
+  let anchors = [...document.querySelectorAll('a[href*="sdp/link"]')].filter(isOrderTitle);
+  if (!anchors.length) anchors = [...document.querySelectorAll('a[href*="sdp/link"][href*="my_orders"]')].filter((a) => clean(a.innerText).length > 3);
   const byKey = new Map();
   for (const a of anchors) {
     const name = clean(a.innerText);
-    if (name.length < 2) continue;
+    if (name.length < 2 || /^coupang$/i.test(name)) continue;
     let url; try { url = new URL(a.href); } catch { continue; }
     const vid = url.searchParams.get("vendorItemId") || a.href;
-    const row = a.closest("tr") || a.parentElement;
+    const row = a.closest("tr");
+    if (!row) continue; // 주문은 표의 한 줄 안에 있다. 표 밖이면 주문이 아니다
     const rowText = row.innerText || "";
     let orderDate = null;
     for (let el = row; el; el = el.parentElement) {
