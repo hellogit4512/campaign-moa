@@ -273,7 +273,6 @@ export const MORE_COLLECTORS = {
   gangnam: { name: "강남맛집", url: "https://xn--939au0g4vj8sq.net/cp/", run: gangnam },
   seoulouba: { name: "서울오빠", url: "https://www.seoulouba.co.kr/campaign/?cat=1", run: seoulouba },
   cometoplay: { name: "놀러와체험단", url: "https://www.cometoplay.kr/item_list.php", run: cometoplay },
-  reviewwave: { name: "리뷰웨이브", url: "https://www.reviewwave.kr/campaign_list.php", run: cpList("reviewwave", "https://www.reviewwave.kr") },
   meta: { name: "메타체험단", url: "https://meta-chehumdan.com/campaign_list.php", run: cpList("meta", "https://meta-chehumdan.com") },
   assaview: { name: "아싸뷰", url: "https://assaview.co.kr/campaign_list.php", run: assaview },
 };

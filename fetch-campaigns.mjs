@@ -12,7 +12,7 @@ const API = "https://campaign-moa.greenorbit3.chatgpt.site/api/campaigns?format=
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "data");
 const REWARD_MAX = 140;
 // 사이트에서 빼는 플랫폼
-const EXCLUDED = new Set(["reviewmaker", "thereview", "reviewnavi", "reviewus", "modumoyeo", "popomon"]);
+const EXCLUDED = new Set(["reviewmaker", "thereview", "reviewnavi", "reviewus", "modumoyeo", "popomon", "storyn", "reviewwave"]);
 
 // KST 기준 오늘 날짜 (YYYY-MM-DD)
 const todayKST = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
