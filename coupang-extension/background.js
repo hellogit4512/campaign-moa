@@ -1,9 +1,10 @@
-// 쿠팡 리뷰 작성기 도우미 — 버튼 한 번으로 주문목록과 각 상품의 상품평을 읽어 리뷰 작성기로 보낸다.
+// 쿠팡 리뷰 작성기 도우미 — 버튼 한 번으로 '리뷰관리 → 리뷰 작성'(아직 리뷰를 안 쓴 상품)과 각 상품의 상품평을 읽어 리뷰 작성기로 보낸다.
+// (1.1.0: 주문목록은 이미 리뷰를 쓴 상품도 섞여 나와서 리뷰 작성 화면에서 읽도록 바꿨다)
 // 내 크롬의 쿠팡 로그인 그대로, 뒤쪽 탭 하나를 열어 페이지를 차례로 연다 (사람이 보는 것과 같은 방식).
 // 쿠팡에 부담을 주지 않도록 상품 사이에 몇 초씩 쉬고, 한 번 읽은 상품평은 7일 동안 다시 읽지 않는다.
 // (1.0.1: 상품평을 베스트순으로 읽게 바뀌어 저장 이름을 rwReviewCacheBest 로 바꿨다 → 예전 최신순 캐시는 안 씀)
 const WRITER = "https://hellogit4512.github.io/campaign-moa/review-writer/";
-const ORDER_LIST = "https://mc.coupang.com/ssr/desktop/order/list";
+const REVIEWABLE = "https://my.coupang.com/productreview/reviewable";
 const REVIEW_TTL = 7 * 24 * 3600 * 1000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let running = false;
@@ -40,19 +41,24 @@ async function collect(reportTabId) {
   let work = null;
   try {
     const report = reportTabId != null ? await chrome.tabs.get(reportTabId).catch(() => null) : null;
-    say(reportTabId, "쿠팡 주문목록을 여는 중…");
+    say(reportTabId, "쿠팡 리뷰 작성 목록을 여는 중…");
     work = await chrome.tabs.create({ url: "about:blank", active: false, windowId: report ? report.windowId : undefined, index: report ? report.index + 1 : undefined });
-    const at = await go(work.id, ORDER_LIST);
+    const at = await go(work.id, REVIEWABLE);
     if (/login\.coupang\.com/.test(at)) {
       await chrome.tabs.update(work.id, { active: true });
       work = null; // 로그인 탭은 닫지 않는다
       say(reportTabId, "쿠팡 로그인이 필요해요. 열린 쿠팡 탭에서 로그인한 뒤 다시 눌러 주세요.", { error: true });
       return;
     }
-    const list = await run(work.id, "orders");
+    say(reportTabId, "리뷰 쓸 상품 목록을 읽는 중… (아래로 내려 전부 불러와요)");
+    const list = await run(work.id, "reviewable");
     if (!list || /access denied/i.test(list.title)) { say(reportTabId, "쿠팡이 잠시 막았어요. 몇 분 뒤 다시 눌러 주세요.", { error: true }); return; }
     const orders = list.orders || [];
-    if (!orders.length) { say(reportTabId, "주문을 못 찾았어요. 쿠팡 화면이 바뀌었을 수 있어요.", { error: true }); return; }
+    if (!orders.length) {
+      say(reportTabId, list.total === 0 ? "리뷰를 쓸 상품이 없어요. 모두 작성하셨네요!" : "리뷰 쓸 상품을 못 찾았어요. 쿠팡 화면이 바뀌었을 수 있어요.", { error: list.total !== 0, done: true });
+      if (list.total === 0) { await chrome.storage.local.set({ rwData: { fetchedAt: new Date().toISOString(), orders: [] } }); }
+      return;
+    }
 
     const { rwReviewCacheBest = {} } = await chrome.storage.local.get("rwReviewCacheBest");
     const now = Date.now();
@@ -80,7 +86,7 @@ async function collect(reportTabId) {
     };
     await chrome.storage.local.set({ rwData: data });
     const withReviews = data.orders.filter((o) => o.reviews.length).length;
-    say(reportTabId, `주문 ${data.orders.length}건, 상품평 있는 상품 ${withReviews}개를 가져왔어요.`, { done: true });
+    say(reportTabId, `리뷰 쓸 상품 ${data.orders.length}개, 상품평 있는 상품 ${withReviews}개를 가져왔어요.`, { done: true });
     if (reportTabId != null) chrome.tabs.sendMessage(reportTabId, { type: "rw-ext-data", data }).catch(() => {});
   } catch (e) {
     say(reportTabId, `가져오다 멈췄어요: ${e.message}`, { error: true });

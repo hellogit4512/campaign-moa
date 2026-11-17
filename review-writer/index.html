@@ -95,7 +95,7 @@ select { width: 100%; font: inherit; color: var(--ink); background: var(--bg); b
     <div>
       <section class="card" id="ordersCard">
         <div class="row" style="justify-content:space-between">
-          <h2>최근 쿠팡 주문 <span class="count" id="ordersAt"></span></h2>
+          <h2>리뷰 쓸 쿠팡 상품 <span class="count" id="ordersAt"></span></h2>
           <button class="btn small" id="clearOrders" hidden>목록 지우기</button>
         </div>
         <div id="extBox" hidden>
@@ -118,12 +118,12 @@ select { width: 100%; font: inherit; color: var(--ink); background: var(--bg); b
             <li>즐겨찾기 막대가 안 보이면 <b>Ctrl+Shift+B</b></li>
             <li>아래 버튼을 즐겨찾기 막대로 <b>끌어다 놓기</b> (처음 한 번만)<br>
               <a class="btn small bm" id="bookmarklet" href="#" title="즐겨찾기 막대로 끌어다 놓으세요">쿠팡 → 리뷰 작성기</a></li>
-            <li>쿠팡에 로그인하고 <b>마이쿠팡 → 주문목록</b>을 연 뒤, 즐겨찾기의 그 버튼을 누르기<br>
+            <li>쿠팡에 로그인하고 <b>마이쿠팡 → 리뷰관리 → 리뷰 작성</b>을 연 뒤, 즐겨찾기의 그 버튼을 누르기 (아직 리뷰를 안 쓴 상품만 가져와요)<br>
               <span class="hint">같은 버튼을 상품 페이지에서 누르면 그 상품의 상품평을 가져와요</span></li>
           </ol>
           <p class="hint">주문목록 화면에서 상품명·옵션·주문일·배송 상태만 읽어요. 이름·주소·연락처·결제 정보는 읽지 않고, 가져온 목록은 이 브라우저에만 저장돼요.</p>
         </div>
-        <p class="hint" id="ordersHint" hidden>리뷰 쓸 상품을 누르면 상품명과 배송 정보가 채워져요. 새 주문은 쿠팡 주문목록에서 즐겨찾기 버튼을 다시 누르세요.</p>
+        <p class="hint" id="ordersHint" hidden>상품을 누르면 상품명·배송 정보·참고 상품평이 채워져요. 목록을 새로 받으려면 위 자동 가져오기 버튼을 누르거나, 쿠팡 리뷰관리 → 리뷰 작성 화면에서 즐겨찾기 버튼을 다시 누르세요.</p>
         <div class="orders" id="orders"></div>
       </section>
 
@@ -491,7 +491,7 @@ function findText(o) {
 async function writeReview() {
   const key = getKey();
   if (!key) { $("#keyDetails").open = true; $("#keyDetails").scrollIntoView({ behavior: "smooth", block: "center" }); throw new Error("먼저 Gemini API 키를 저장해 주세요."); }
-  if (!photos.length && !$("#product").value.trim() && !$("#ship").value.trim()) throw new Error("사진이 없으면 상품명이나 배송 정보는 있어야 해요. 위 '최근 쿠팡 주문'에서 상품을 고르거나 상품명을 적어 주세요.");
+  if (!photos.length && !$("#product").value.trim() && !$("#ship").value.trim()) throw new Error("사진이 없으면 상품명이나 배송 정보는 있어야 해요. 위 '리뷰 쓸 쿠팡 상품'에서 상품을 고르거나 상품명을 적어 주세요.");
   const input = [];
   photos.forEach((p) => input.push({ type: "image", data: p.data, mime_type: "image/jpeg" }));
   input.push({ type: "text", text: buildPrompt(true, photos.length > 0) });
@@ -575,9 +575,11 @@ renderKey();
 let ORDERS = [];
 function orderToShip(o) {
   const d = o.orderDate ? o.orderDate.split("-").map(Number) : null;
+  const dv = o.deliveredAt ? o.deliveredAt.split("-").map(Number) : null; // 리뷰 작성 목록에는 주문일 대신 배송일만 있다
   return [
     `상품: ${o.name}${o.option ? `, ${o.option}` : ""}`,
     d ? `${d[0]}. ${d[1]}. ${d[2]} 주문` : "",
+    dv ? `배송 완료일: ${dv[0]}. ${dv[1]}. ${dv[2]}` : "",
     o.status ? `배송 상태: ${o.status}` : "",
     o.arrival ? `도착: ${o.arrival}` : "",
     o.delivery ? `배송 방식: ${o.delivery}` : "",
@@ -587,7 +589,7 @@ function renderOrders() {
   $("#orders").innerHTML = ORDERS.map((o, i) => `
     <button type="button" class="order" data-i="${i}" aria-pressed="false">
       ${o.imageUrl ? `<img src="${esc(o.imageUrl)}" alt="" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : "<img alt=''>"}
-      <span><span class="nm">${esc(o.name)}</span><span class="meta">${esc([o.orderDate && `${o.orderDate} 주문`, o.arrival || o.status, o.delivery].filter(Boolean).join(" · "))}</span></span>
+      <span><span class="nm">${esc(o.name)}</span><span class="meta">${esc([o.orderDate && `${o.orderDate} 주문`, o.deliveredAt && `${o.deliveredAt} 배송`, o.arrival || (!o.deliveredAt && o.status), o.delivery, o.reviews && o.reviews.length && `상품평 ${o.reviews.length}개`].filter(Boolean).join(" · "))}</span></span>
     </button>`).join("");
 }
 $("#orders").onclick = (e) => {
@@ -704,7 +706,44 @@ function coupangBookmarklet(target) {
     return;
   }
 
-  // ── 주문목록: 최근 주문을 읽어 리뷰 작성기로 보낸다 ──
+  // ── 리뷰관리 → 리뷰 작성 (my.coupang.com/productreview/reviewable): 아직 리뷰를 안 쓴 상품만 ──
+  // coupang-extension/extract.js 의 reviewable() 과 같은 규칙. 아래로 내려 나머지를 불러온 뒤 읽는다.
+  if (/^\/productreview\/reviewable/.test(location.pathname)) {
+    (async () => {
+      const items = () => document.querySelectorAll("li.my-review__writable__list");
+      const total = Number((document.querySelector("[data-total-writable]") || {}).dataset?.totalWritable) || 0;
+      if (items().length < total) notice(`리뷰 쓸 상품 ${total}개를 불러오는 중이에요…`);
+      let last = -1, same = 0;
+      for (let i = 0; i < 20 && items().length < total && same < 3; i++) {
+        window.scrollTo(0, document.body.scrollHeight);
+        await new Promise((r) => setTimeout(r, 1000));
+        const n = items().length; same = n === last ? same + 1 : 0; last = n;
+      }
+      window.scrollTo(0, 0);
+      const orders = [];
+      for (const li of items()) {
+        let ref = {}; try { ref = JSON.parse(li.querySelector(".js_reviewWritableWriteBtn, [data-reference]").getAttribute("data-reference")); } catch (e) {}
+        const name = clean((li.querySelector(".my-review__writable__content-title") || {}).textContent) || clean((li.querySelector("img") || {}).alt);
+        if (!name || !ref.productId) continue;
+        const sub = clean((li.querySelector(".my-review__writable__content") || {}).textContent);
+        const img = li.querySelector("img");
+        const d = (ref.deliveryDate || clean((li.querySelector(".my-review__writable__date") || {}).textContent)).match(/(\d{4})[.-](\d{1,2})[.-](\d{1,2})/);
+        orders.push({
+          productId: String(ref.productId), name,
+          option: sub && sub !== name && !name.includes(sub) ? sub : null,
+          deliveredAt: d ? `${d[1]}-${d[2].padStart(2, "0")}-${d[3].padStart(2, "0")}` : null,
+          status: "배송완료",
+          imageUrl: img && /^https:\/\//.test(img.currentSrc || img.src) ? (img.currentSrc || img.src) : null,
+          url: `https://www.coupang.com/vp/products/${ref.productId}${ref.vendorItemId ? `?vendorItemId=${ref.vendorItemId}` : ""}`,
+        });
+      }
+      if (!orders.length) { alert(total === 0 ? "리뷰를 쓸 상품이 없어요." : "리뷰 쓸 상품을 못 찾았어요. 쿠팡 화면이 바뀌었을 수 있어요."); return; }
+      window.open(`${target}#orders=${pack({ fetchedAt: new Date().toISOString(), orders: orders.slice(0, 60) })}`, "_blank");
+    })();
+    return;
+  }
+
+  // ── 주문목록: 최근 주문을 읽어 리뷰 작성기로 보낸다 (이미 리뷰를 쓴 상품도 섞여 나온다) ──
   // 주문 상품 링크만: sourceType=MyCoupang_my_orders_list_product_title.
   // 같은 화면의 '반품마켓'·추천 상품 칸도 sdp/link 를 쓰므로 sourceType 으로 걸러야 한다.
   const isOrderTitle = (a) => /my_?orders?_?list[^&]*product_title/i.test(a.href);
@@ -796,11 +835,11 @@ function sanitize(j) {
   if (!j || !Array.isArray(j.orders)) return null;
   const str = (v) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
   const orders = j.orders.map((o) => ({
-    name: str(o.name), option: str(o.option), orderDate: str(o.orderDate), status: str(o.status), arrival: str(o.arrival), delivery: str(o.delivery),
+    name: str(o.name), option: str(o.option), orderDate: str(o.orderDate), deliveredAt: str(o.deliveredAt), status: str(o.status), arrival: str(o.arrival), delivery: str(o.delivery),
     imageUrl: typeof o.imageUrl === "string" && o.imageUrl.startsWith("https://") ? o.imageUrl.slice(0, 500) : null,
     url: typeof o.url === "string" && /^https:\/\/(mc|www)\.coupang\.com\//.test(o.url) ? o.url.slice(0, 600) : null,
     reviews: cleanReviewList(o.reviews),
-  })).filter((o) => o.name).slice(0, 40);
+  })).filter((o) => o.name).slice(0, 60);
   return orders.length ? { fetchedAt: str(j.fetchedAt), orders } : null;
 }
 function showOrders(j) {

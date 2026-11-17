@@ -60,6 +60,45 @@
     return { title: document.title, url: location.href, orders: [...byKey.values()].slice(0, 40) };
   }
 
+  // ── 리뷰관리 → 리뷰 작성 (my.coupang.com/productreview/reviewable) ──
+  // 아직 리뷰를 안 쓴 상품만 나온다. 상품 하나 = li.my-review__writable__list, 그 안에
+  // 이름(.my-review__writable__content-title), 배송일(.my-review__writable__date '2026.10.03 배송'),
+  // 리뷰 작성하기 버튼(.js_reviewWritableWriteBtn)의 data-reference JSON {productId, vendorItemId, deliveryDate, completedOrderVendorItemId}.
+  // 처음에 10개만 보이고 아래로 내리면 더 불러온다 (전체 개수는 data-total-writable).
+  async function reviewable() {
+    const items = () => document.querySelectorAll("li.my-review__writable__list");
+    const total = Number((document.querySelector("[data-total-writable]") || {}).dataset?.totalWritable) || 0;
+    let last = -1, same = 0;
+    for (let i = 0; i < 20 && items().length < total && same < 3; i++) {
+      window.scrollTo(0, document.body.scrollHeight);
+      await sleep(1000);
+      const n = items().length;
+      same = n === last ? same + 1 : 0; last = n;
+    }
+    window.scrollTo(0, 0);
+    const out = [];
+    for (const li of items()) {
+      const btn = li.querySelector(".js_reviewWritableWriteBtn, [data-reference]");
+      let ref = {}; try { ref = JSON.parse(btn.getAttribute("data-reference")); } catch {}
+      const name = clean((li.querySelector(".my-review__writable__content-title") || {}).textContent) || clean((li.querySelector("img") || {}).alt);
+      if (!name || !ref.productId) continue;
+      const sub = clean((li.querySelector(".my-review__writable__content") || {}).textContent);
+      const img = li.querySelector("img");
+      const d = (ref.deliveryDate || clean((li.querySelector(".my-review__writable__date") || {}).textContent)).match(/(\d{4})[.-](\d{1,2})[.-](\d{1,2})/);
+      out.push({
+        vid: String(ref.vendorItemId || ref.completedOrderVendorItemId || ref.productId),
+        productId: String(ref.productId),
+        name,
+        option: sub && sub !== name && !name.includes(sub) ? sub : null,
+        deliveredAt: d ? `${d[1]}-${d[2].padStart(2, "0")}-${d[3].padStart(2, "0")}` : null,
+        status: "배송완료",
+        imageUrl: img && /^https:\/\//.test(img.currentSrc || img.src) ? (img.currentSrc || img.src) : null,
+        url: `https://www.coupang.com/vp/products/${ref.productId}${ref.vendorItemId ? `?vendorItemId=${ref.vendorItemId}` : ""}`,
+      });
+    }
+    return { title: document.title, url: location.href, total, orders: out.slice(0, 60) };
+  }
+
   // ── 상품 페이지 (www.coupang.com/vp/products/…) ──
   // 리뷰 하나 = <article>, 그 안에 별(i.twc-bg-full-star), 한 줄 제목 div, 본문 div,
   // 그리고 '도움이 돼요' 칸(.js_reviewArticleHelpfulContainer[data-review-id]).
@@ -113,5 +152,5 @@
     return { title: document.title, url: location.href, product: productName, sort, blocked: /access denied/i.test(document.title), reviews: found.slice(0, 20) };
   }
 
-  window.__rw = { orders, reviews };
+  window.__rw = { orders, reviewable, reviews };
 })();
