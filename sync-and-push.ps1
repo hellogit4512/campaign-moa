@@ -18,7 +18,7 @@ Log "시작"
 Run "pull" { git pull --rebase --autostash -X theirs origin main }
 if ($All) { Log "범위: 전국"; Run "수집" { node fetch-campaigns.mjs --all } }
 else { Run "수집" { node fetch-campaigns.mjs } }
-Run "add" { git add data/campaigns.json data/first-seen.json data/geo-cache.json data/manual/reviewnote.json }
+Run "add" { git add data/campaigns.json data/first-seen.json data/geo-cache.json data/places.json data/manual/reviewnote.json }
 git diff --cached --quiet
 if ($LASTEXITCODE -ne 0) {
     $msg = "캠페인 목록 갱신 $(Get-Date -Format 'yyyy-MM-dd') (PC 수집$(if ($All) { ', 전국' }))"

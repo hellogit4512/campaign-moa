@@ -269,14 +269,16 @@ async function assaview(today) {
 const queensSeen = new Set();
 // ── 리뷰노트 ── /api/v2/campaigns (robots.txt 는 상세 페이지 /campaigns/ 만 막고 목록 API 는 열어 둠)
 // 한 번에 16개씩, 조건 하나당 100쪽(1,600개)까지만 준다. 그래서
-// 시·도별로 읽고 → 100쪽에 걸리면 구·군별로 → 그래도 걸리면(재택) 정렬 세 가지로 읽어 합친다
+// 서울·경기는 언제나 1,600개를 넘어서 처음부터 구·군별로 읽는다 (시·도 단위로 100쪽을 헛읽지 않게).
+// 다른 시·도는 시·도 단위로 읽고, 100쪽에 걸리면 구·군별로 나눈다.
+const RN_BIG = new Set(["서울", "경기"]);
 async function reviewnote(today) {
   const base = "https://www.reviewnote.co.kr";
   const headers = { "User-Agent": UA, Referer: `${base}/campaigns` };
   const captured = [];
   const read = async (city, gugun, sort) => {
     for (let page = 0; page < 100; page++) {
-      await sleep(800);
+      await sleep(450);
       const url = `${base}/api/v2/campaigns?city=${encodeURIComponent(city)}&gugunSelected=${gugun}&s=${sort}&coord=&limit=16&page=${page}`;
       const res = await fetch(url, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
@@ -293,13 +295,18 @@ async function reviewnote(today) {
   for (const sido of sidos) {
     if (sido.name === "재택" || sido.name === "전국") continue;
     if (want && !want.has(sido.name)) continue;
-    if (!(await read(sido.name, "", "new"))) continue;
-    for (const g of sido.guguns || []) {
-      if (await read(sido.name, g.id, "new")) {
-        await read(sido.name, g.id, "default");
-        await read(sido.name, g.id, "popular");
+    if (!RN_BIG.has(sido.name) && !(await read(sido.name, "", "new"))) continue;
+    // 응답이 느린 편이라 구·군 두 곳씩 동시에 읽는다 (각각은 0.45초씩 쉬어 가며)
+    const queue = [...(sido.guguns || [])];
+    const worker = async () => {
+      for (let g; (g = queue.shift()); ) {
+        if (await read(sido.name, g.id, "new")) {
+          await read(sido.name, g.id, "default");
+          await read(sido.name, g.id, "popular");
+        }
       }
-    }
+    };
+    await Promise.all([worker(), worker()]);
   }
   return parseReviewnote(captured, today);
 }

@@ -32,7 +32,7 @@ export async function addCoords(rows, cachePath, { maxLookups = 400, log = conso
   let cache = {};
   try { cache = JSON.parse(await readFile(cachePath, "utf8")); } catch {}
   const keyOf = (r) => `${r.province || ""}|${r.district || ""}`;
-  const missing = [...new Set(rows.filter((r) => r.province && r.province !== "전국").map(keyOf))].filter((k) => !(k in cache));
+  const missing = [...new Set(rows.filter((r) => !r.exact && r.province && r.province !== "전국").map(keyOf))].filter((k) => !(k in cache));
   let looked = 0;
   for (const k of missing) {
     if (looked >= maxLookups) break;
@@ -48,6 +48,7 @@ export async function addCoords(rows, cachePath, { maxLookups = 400, log = conso
   if (looked) log(`위치 새로 찾음: ${looked}번 조회 (남은 동네 ${Math.max(0, missing.length - looked)}곳)`);
   await writeFile(cachePath, JSON.stringify(cache));
   for (const r of rows) {
+    if (r.exact) continue; // 상세 페이지 등에서 정확한 좌표를 이미 받은 캠페인
     const c = cache[keyOf(r)];
     r.lat = c?.[0] ?? null;
     r.lng = c?.[1] ?? null;

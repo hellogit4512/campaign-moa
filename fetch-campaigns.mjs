@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { LOCAL_COLLECTORS } from "./collectors.mjs";
 import { MORE_COLLECTORS } from "./collectors-more.mjs";
 import { addCoords } from "./geo.mjs";
+import { addPlaces } from "./places.mjs";
 
 const API = "https://campaign-moa.greenorbit3.chatgpt.site/api/campaigns?format=compact";
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "data");
@@ -55,7 +56,7 @@ const at = Object.fromEntries(src.fields.map((f, i) => [f, i]));
 
 // 출력 필드 순서 — index.html 은 fields 로 위치를 찾는다
 const FIELDS = ["id", "platform", "title", "url", "category", "type", "province", "district",
-  "region", "imageUrl", "channel", "reward", "endDate", "applicantCount", "selectionCount", "createdAt", "lat", "lng"];
+  "region", "imageUrl", "channel", "reward", "endDate", "applicantCount", "selectionCount", "createdAt", "lat", "lng", "exact"];
 
 // 처음 본 날짜 기록 (직접 수집한 캠페인의 "새로 등록" 판단용)
 const firstSeenPath = join(OUT_DIR, "first-seen.json");
@@ -144,7 +145,8 @@ for (const c of candidates) {
   if (local[c.platform] && !firstSeen[c.id]) firstSeen[c.id] = todayKST;
   kept.push(c);
 }
-// 지도용 동네 좌표 (처음 보는 동네만 새로 찾는다)
+// 지도용 좌표: 상세 페이지의 정확한 위치(처음 보는 캠페인만) → 없으면 동네 단위
+await addPlaces(kept, join(OUT_DIR, "places.json"), join(OUT_DIR, "geo-cache.json"));
 await addCoords(kept, join(OUT_DIR, "geo-cache.json"));
 const rows = [];
 for (const c of kept) {

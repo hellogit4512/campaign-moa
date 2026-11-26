@@ -56,6 +56,7 @@ export async function revu(ctx, today) {
           channel: { blog: "블로그", instagram: "인스타그램", youtube: "유튜브", clip: "클립", reels: "릴스" }[x.media] || null,
           reward: x.brief || (x.campaignData?.point ? `${Number(x.campaignData.point).toLocaleString("ko-KR")} 포인트` : null),
           endDate: x.requestEndedOn || null,
+          lat: Number(x.venue?.lat) || null, lng: Number(x.venue?.lng) || null,
           applicantCount: x.campaignStats?.requestCount ?? null, selectionCount: x.reviewerLimit ?? null,
         });
       }
