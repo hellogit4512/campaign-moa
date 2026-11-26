@@ -126,6 +126,15 @@ button { cursor: pointer; }
 
 /* 결과 헤더 */
 .results-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
+.results-head .view-toggle { margin-left: 0; }
+.map-wrap { display: grid; gap: 8px; }
+#map { height: min(70vh, 640px); min-height: 360px; border-radius: var(--r); border: 1px solid var(--line); background: var(--sunken); z-index: 0; }
+.map-note { margin: 0; font-size: 12.5px; color: var(--muted); }
+.map-pop { display: grid; gap: 6px; min-width: 200px; max-width: 260px; font: 13px/1.45 var(--f-body); }
+.map-pop b { font: 700 14px var(--f-display); }
+.map-pop ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; }
+.map-pop a { color: #2A52D4; }
+.map-pop button { justify-self: start; border: 0; background: #151D2E; color: #fff; border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
 .results-head h2 { margin: 0; font: 700 17px var(--f-display); letter-spacing: -.02em; }
 .results-head h2 .num { color: var(--accent); }
 .sort { margin-left: auto; display: flex; gap: 2px; background: var(--sunken); border-radius: 999px; padding: 3px; overflow-x: auto; max-width: 100%; }
@@ -334,6 +343,10 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
       <div class="results">
         <div class="results-head">
           <h2><span class="num" id="resultCount">0</span>개 캠페인</h2>
+          <div class="sort view-toggle" role="group" aria-label="보기 방식" id="viewToggle">
+            <button type="button" data-mode="list" aria-pressed="true">목록</button>
+            <button type="button" data-mode="map" aria-pressed="false">지도</button>
+          </div>
           <div class="sort" role="group" aria-label="정렬" id="sort">
             <button type="button" data-sort="deadline" aria-pressed="true">마감 임박순</button>
             <button type="button" data-sort="recent" aria-pressed="false" hidden>최신 등록순</button>
@@ -345,6 +358,10 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
         </div>
         <div class="grid" id="grid"></div>
         <div class="more" id="more"></div>
+        <div class="map-wrap" id="mapWrap" hidden>
+          <div id="map" role="region" aria-label="캠페인 지도"></div>
+          <p class="map-note">동네 단위 위치예요. 동그라미를 누르면 그 동네 캠페인이 보여요. 정확한 주소는 원본에서 확인해 주세요.</p>
+        </div>
       </div>
     </div>
     <button class="filter-fab" type="button" id="openFilters">필터 <span class="num" id="filterBadge" hidden>0</span></button>
@@ -484,7 +501,7 @@ const state = {
   types: new Set(prefs.types || []), channels: new Set(prefs.channels || []),
   categories: new Set(), prices: new Set(), platformsOff: new Set(),
   soon: false, easy: false, fresh: false,
-  shown: PAGE, mineFilter: "all",
+  shown: PAGE, mineFilter: "all", mode: "list",
 };
 let all = [], byId = new Map(), platName = {}, today = "", result = [], meta = null;
 
@@ -518,6 +535,7 @@ function normalize(json) {
       category: r[f.category] || "기타", type: TYPE_ORDER.includes(r[f.type]) ? r[f.type] : "기타",
       province: r[f.province] || "", district: r[f.district] || "", region: r[f.region] || "",
       img: r[f.imageUrl], channels: ch, reward: r[f.reward], end: r[f.endDate],
+      lat: f.lat != null ? r[f.lat] : null, lng: f.lng != null ? r[f.lng] : null,
       apply: apply ?? null, seats: seats ?? null, created: r[f.createdAt] || "",
     };
     // 신청자 0명은 아직 집계 전인 경우가 많아 경쟁률에서 뺀다
@@ -752,6 +770,10 @@ function renderSkeleton() {
   $("#grid").innerHTML = Array.from({ length: 8 }, () => `<article class="card skeleton"><div class="thumb"></div><div class="body"><div class="meta">&nbsp;</div><div class="title">&nbsp;</div><p class="reward">&nbsp;</p></div></article>`).join("");
 }
 function renderGrid() {
+  const isMap = state.mode === "map";
+  $("#grid").hidden = $("#more").hidden = isMap;
+  $("#mapWrap").hidden = !isMap;
+  if (isMap) { renderMap(); return; }
   const grid = $("#grid");
   if (!result.length) {
     const noPlat = state.platformsOff.size >= $("#fPlatform").querySelectorAll("input").length;
@@ -765,6 +787,70 @@ function renderGrid() {
   grid.innerHTML = result.slice(0, state.shown).map(cardHTML).join("");
   updateMore();
 }
+// ── 지도 ── Leaflet(오픈스트리트맵)을 지도 보기를 처음 열 때만 불러온다
+let mapObj = null, mapLayer = null, leafletLoading = null;
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (leafletLoading) return leafletLoading;
+  leafletLoading = new Promise((resolve, reject) => {
+    const css = document.createElement("link");
+    css.rel = "stylesheet"; css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+    document.head.append(css);
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    s.onload = resolve; s.onerror = () => { leafletLoading = null; reject(new Error("지도를 불러오지 못했어요")); };
+    document.head.append(s);
+  });
+  return leafletLoading;
+}
+async function renderMap() {
+  try { await loadLeaflet(); }
+  catch (e) { $("#map").innerHTML = `<div class="empty"><b>${esc(e.message)}</b>인터넷 연결을 확인하고 다시 눌러 주세요.</div>`; return; }
+  if (!mapObj) {
+    mapObj = L.map("map", { scrollWheelZoom: true }).setView([37.45, 127.0], 9);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "&copy; OpenStreetMap" }).addTo(mapObj);
+  }
+  setTimeout(() => mapObj.invalidateSize(), 0);
+  if (mapLayer) mapLayer.remove();
+  // 같은 동네 좌표끼리 묶는다
+  const groups = new Map();
+  for (const c of result) {
+    if (c.lat == null || c.lng == null) continue;
+    const k = `${c.lat},${c.lng}`;
+    if (!groups.has(k)) groups.set(k, { lat: c.lat, lng: c.lng, label: c.region || c.district || "", province: c.province, district: c.district, list: [] });
+    groups.get(k).list.push(c);
+  }
+  mapLayer = L.layerGroup().addTo(mapObj);
+  const max = Math.max(1, ...[...groups.values()].map((g) => g.list.length));
+  for (const g of groups.values()) {
+    const n = g.list.length;
+    const m = L.circleMarker([g.lat, g.lng], { radius: 6 + 22 * Math.sqrt(n / max), color: "#2A52D4", weight: 1.5, fillColor: "#2A52D4", fillOpacity: 0.35 })
+      .bindTooltip(`${g.label} · ${n}개`, { direction: "top" });
+    m.bindPopup(() => {
+      const top = g.list.slice(0, 6).map((c) => `<li><a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">${esc(c.title)}</a></li>`).join("");
+      const div = document.createElement("div");
+      div.className = "map-pop";
+      div.innerHTML = `<b>${esc(g.label)} · ${fmt(n)}개</b><ul>${top}</ul>${n > 6 ? `<span>외 ${fmt(n - 6)}개</span>` : ""}<button type="button">이 동네 목록으로 보기</button>`;
+      div.querySelector("button").onclick = () => {
+        state.province = g.province || ""; state.district = g.district || "";
+        setMode("list"); buildFilters(); apply();
+        scrollTo({ top: $("#resultCount").getBoundingClientRect().top + scrollY - 90 });
+      };
+      return div;
+    });
+    m.addTo(mapLayer);
+  }
+  const noPos = result.length - [...groups.values()].reduce((a, g) => a + g.list.length, 0);
+  $(".map-note").textContent = `동네 단위 위치예요. 동그라미를 누르면 그 동네 캠페인이 보여요.${noPos ? ` 위치를 모르는 ${fmt(noPos)}개는 지도에 없어요.` : ""}`;
+}
+function setMode(mode) {
+  state.mode = mode;
+  for (const b of $("#viewToggle").children) b.setAttribute("aria-pressed", b.dataset.mode === mode);
+  $("#sort").hidden = mode === "map";
+  renderGrid();
+}
+$("#viewToggle").onclick = (e) => { const b = e.target.closest("button"); if (b) setMode(b.dataset.mode); };
+
 function appendMore() {
   if (state.shown >= result.length) return;
   const from = state.shown;

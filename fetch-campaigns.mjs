@@ -2,12 +2,14 @@
 // 사용법: node fetch-campaigns.mjs          → 서울·경기 방문형 등만 (배송형 제외)
 //         node fetch-campaigns.mjs --all    → 전국 (배송형은 여전히 제외)
 // 결과: data/campaigns.json (마감 지난 캠페인 제외, 화면에 필요한 필드만)
-import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { LOCAL_COLLECTORS } from "./collectors.mjs";
 import { MORE_COLLECTORS } from "./collectors-more.mjs";
+import { addCoords } from "./geo.mjs";
 
 const API = "https://campaign-moa.greenorbit3.chatgpt.site/api/campaigns?format=compact";
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "data");
@@ -53,7 +55,7 @@ const at = Object.fromEntries(src.fields.map((f, i) => [f, i]));
 
 // 출력 필드 순서 — index.html 은 fields 로 위치를 찾는다
 const FIELDS = ["id", "platform", "title", "url", "category", "type", "province", "district",
-  "region", "imageUrl", "channel", "reward", "endDate", "applicantCount", "selectionCount", "createdAt"];
+  "region", "imageUrl", "channel", "reward", "endDate", "applicantCount", "selectionCount", "createdAt", "lat", "lng"];
 
 // 처음 본 날짜 기록 (직접 수집한 캠페인의 "새로 등록" 판단용)
 const firstSeenPath = join(OUT_DIR, "first-seen.json");
@@ -78,11 +80,26 @@ for (const [id, c] of Object.entries(DIRECT)) {
   }
 }
 // 레뷰·미블은 로그인한 크롬 프로필이 있는 PC에서만 수집한다 (GitHub Actions 에서는 건너뜀)
+// 크롬은 분리된 별도 프로세스(run-login.mjs)에서 돌려서, 크롬 종료 신호가 이 작업까지 끄지 못하게 한다
 if (!process.env.MOA_NO_LOGIN && existsSync(join(dirname(fileURLToPath(import.meta.url)), "browser-profile"))) {
-  const { runLoginCollectors, LOGIN_COLLECTORS } = await import("./collectors-login.mjs");
-  const { results, status } = await runLoginCollectors(todayKST);
-  Object.assign(local, results);
-  for (const [id, s] of Object.entries(status)) localStatus[id] = { ...s, url: LOGIN_COLLECTORS[id].url, name: LOGIN_COLLECTORS[id].name };
+  const { LOGIN_COLLECTORS } = await import("./collectors-login.mjs");
+  const here = dirname(fileURLToPath(import.meta.url));
+  const outPath = join(OUT_DIR, "login-result.tmp.json");
+  const code = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [join(here, "run-login.mjs"), outPath, todayKST], { cwd: here, detached: true, windowsHide: true, stdio: "ignore" });
+    const timer = setTimeout(() => { child.kill(); resolve("timeout"); }, 25 * 60e3);
+    child.on("exit", (c) => { clearTimeout(timer); resolve(c); });
+    child.on("error", () => { clearTimeout(timer); resolve("error"); });
+  });
+  const got = await readJSON(outPath, null);
+  if (got) {
+    for (const m of got.logs || []) console.log(m);
+    Object.assign(local, got.results);
+    for (const [id, s] of Object.entries(got.status)) localStatus[id] = { ...s, url: LOGIN_COLLECTORS[id].url, name: LOGIN_COLLECTORS[id].name };
+    await rm(outPath, { force: true });
+  } else {
+    console.warn(`로그인 수집이 끝나지 못했어요 (${code}) — 레뷰·미블은 지난 결과를 써요`);
+  }
 }
 // 리뷰노트 자동 수집이 실패한 날만, 직접 둘러보며 가져온 목록(npm run import:reviewnote)을 대신 쓴다
 const manual = local.reviewnote ? null : await readJSON(join(OUT_DIR, "manual", "reviewnote.json"), null);
@@ -98,7 +115,7 @@ const prev = await readJSON(join(OUT_DIR, "campaigns.json"), null);
 if (prev?.fields && prev.sources) {
   const pf = Object.fromEntries(prev.fields.map((k, i) => [k, i]));
   for (const s of prev.sources) {
-    if (local[s.id] || s.method !== "local" || !s.lastSyncAt) continue;
+    if (EXCLUDED.has(s.id) || local[s.id] || s.method !== "local" || !s.lastSyncAt) continue;
     if (Date.now() - Date.parse(s.lastSyncAt) > 3 * 86400e3) continue;
     local[s.id] = prev.rows.filter((r) => r[pf.platform] === s.id).map((r) => Object.fromEntries(FIELDS.map((f) => [f, r[pf[f]] ?? null])));
     localStatus[s.id] = { status: "success", records: local[s.id].length, lastSyncAt: s.lastSyncAt, url: s.url, name: s.name };
@@ -117,7 +134,7 @@ for (const list of Object.values(local)) {
 }
 
 const seen = new Set();
-const rows = [];
+const kept = [];
 for (const c of candidates) {
   if (c.endDate && c.endDate < todayKST) continue; // 마감 지난 캠페인 제외
   if (c.type === "배송" || c.province === "전국") continue; // 배송형 제외
@@ -125,6 +142,12 @@ for (const c of candidates) {
   if (seen.has(c.id)) continue;
   seen.add(c.id);
   if (local[c.platform] && !firstSeen[c.id]) firstSeen[c.id] = todayKST;
+  kept.push(c);
+}
+// 지도용 동네 좌표 (처음 보는 동네만 새로 찾는다)
+await addCoords(kept, join(OUT_DIR, "geo-cache.json"));
+const rows = [];
+for (const c of kept) {
   rows.push(FIELDS.map((f) => {
     let v = c[f] ?? null;
     if (f === "reward" && typeof v === "string" && v.length > REWARD_MAX) v = v.slice(0, REWARD_MAX) + "…";

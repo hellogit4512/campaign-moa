@@ -4,3 +4,4 @@ node_modules/
 data/sync.log
 browser-profile/
 data/manual/raw/
+data/login-result.tmp.json
