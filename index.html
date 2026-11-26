@@ -135,6 +135,9 @@ button { cursor: pointer; }
 .map-pop ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; }
 .map-pop a { color: #2A52D4; }
 .map-pop span { color: #5B6578; font-size: 12.5px; }
+/* 정확한 위치 묶음도 파란색으로 (기본은 초록·노랑·주황이라 '대략 위치' 노란 원과 헷갈림) */
+#map .marker-cluster-small, #map .marker-cluster-medium, #map .marker-cluster-large { background-color: rgb(42 82 212 / .25); }
+#map .marker-cluster-small div, #map .marker-cluster-medium div, #map .marker-cluster-large div { background-color: rgb(42 82 212 / .85); color: #fff; font: 600 12px var(--f-num); }
 .map-pop button { justify-self: start; border: 0; background: #151D2E; color: #fff; border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
 .results-head h2 { margin: 0; font: 700 17px var(--f-display); letter-spacing: -.02em; }
 .results-head h2 .num { color: var(--accent); }
