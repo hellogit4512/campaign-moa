@@ -4,7 +4,12 @@ name: 매일 캠페인 수집
 on:
   schedule:
     - cron: "0 22 * * *" # UTC 22:00 = KST 07:00
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      all:
+        description: "전국 수집 (끄면 서울·경기만)"
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -15,7 +20,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node fetch-campaigns.mjs
+      - run: node fetch-campaigns.mjs ${{ inputs.all && '--all' || '' }}
       - name: 변경 사항 커밋
         run: |
           git config user.name "campaign-moa-bot"

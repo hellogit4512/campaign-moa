@@ -315,6 +315,11 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
         </div>
 
         <div class="fgroup">
+          <h3>제공 금액</h3>
+          <div class="chips" id="fPrice"></div>
+        </div>
+
+        <div class="fgroup">
           <h3>분야</h3>
           <div class="chips" id="fCategory"></div>
         </div>
@@ -334,6 +339,7 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
             <button type="button" data-sort="recent" aria-pressed="false" hidden>최신 등록순</button>
             <button type="button" data-sort="ratio" aria-pressed="false">경쟁률 낮은순</button>
             <button type="button" data-sort="seats" aria-pressed="false">모집 많은순</button>
+            <button type="button" data-sort="price" aria-pressed="false">금액 높은순</button>
           </div>
           <div class="active-filters" id="activeFilters"></div>
         </div>
@@ -386,7 +392,8 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
         <h3>지금 수집 실행</h3>
         <p>GitHub에서 수집을 바로 돌려요. 5분쯤 뒤 사이트에 반영돼요. 레뷰·미블·데일리뷰·포블로그·강남맛집·메타체험단은 GitHub에서 접속이 막혀 있어서 마지막 PC 수집 결과(3일 이내)를 그대로 써요.</p>
         <div class="btns">
-          <button class="btn primary" type="button" id="runSync">수집 실행</button>
+          <button class="btn primary" type="button" id="runSync">서울·경기 수집</button>
+          <button class="btn" type="button" id="runSyncAll">전국 수집</button>
           <a class="btn" href="https://github.com/hellogit4512/campaign-moa/actions/workflows/daily-sync.yml" target="_blank" rel="noopener noreferrer">GitHub에서 보기</a>
         </div>
         <p id="runMsg"></p>
@@ -429,6 +436,29 @@ const STATUSES = [
 const TYPE_ORDER = ["방문", "배송", "기자단", "기타"];
 const PROVINCES = ["서울","경기","인천","부산","대구","대전","광주","울산","세종","강원","충북","충남","전북","전남","경북","경남","제주"];
 const CHANNELS = ["블로그","릴스","클립","인스타그램","유튜브","구매평"];
+const PRICE_BANDS = [
+  { id: "p1", label: "3만원 미만", max: 30000 },
+  { id: "p2", label: "3~5만원", max: 50000 },
+  { id: "p3", label: "5~10만원", max: 100000 },
+  { id: "p4", label: "10만원 이상", max: Infinity },
+  { id: "none", label: "금액 미표기" },
+];
+// 제공 내역 글에서 금액을 읽는다: "1만5천원", "4.5~5.5만원", "36,000원 상당", "10,000p" → 가장 큰 값
+function priceOf(text) {
+  if (!text) return null;
+  const t = text.replace(/\s+/g, " ").replace(/(\d+)\s*만\s*(\d+)\s*천\s*원?/g, (_, a, b) => `${Number(a) * 10000 + Number(b) * 1000}원`);
+  let best = null, m;
+  const re = /(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(만\s*원|만|천\s*원|원|p\b|P\b|포인트|상당)/g;
+  while ((m = re.exec(t))) {
+    let n = parseFloat(m[1].replace(/,/g, ""));
+    if (m[2].startsWith("만")) n *= 10000;
+    else if (m[2].startsWith("천")) n *= 1000;
+    if (n < 1000 || n > 5000000) continue;
+    if (best == null || n > best) best = n;
+  }
+  return best;
+}
+const priceBand = (p) => (p == null ? "none" : PRICE_BANDS.find((b) => b.max && p < b.max).id);
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -452,7 +482,7 @@ const state = {
   q: "", sort: prefs.sort || "deadline",
   province: prefs.province || "", district: prefs.district || "",
   types: new Set(prefs.types || []), channels: new Set(prefs.channels || []),
-  categories: new Set(), platformsOff: new Set(),
+  categories: new Set(), prices: new Set(), platformsOff: new Set(),
   soon: false, easy: false, fresh: false,
   shown: PAGE, mineFilter: "all",
 };
@@ -492,6 +522,8 @@ function normalize(json) {
     };
     // 신청자 0명은 아직 집계 전인 경우가 많아 경쟁률에서 뺀다
     c.ratio = apply > 0 && seats > 0 ? apply / seats : null;
+    c.price = priceOf(`${c.reward || ""} ${c.title}`);
+    c.priceBand = priceBand(c.price);
     c.hay = `${c.title} ${c.region} ${c.reward || ""} ${platName[c.platform] || ""}`.toLowerCase();
     return c;
   });
@@ -535,7 +567,7 @@ function renderPulse() {
     if (state.sort === "recent") { state.sort = "deadline"; for (const x of $("#sort").children) x.setAttribute("aria-pressed", x.dataset.sort === "deadline"); }
   }
   const synced = new Date(meta.syncedAt).toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
-  $("#fresh").innerHTML = `<span><span class="dot"></span>${esc(synced)} 업데이트 · 매일 자동 갱신</span>`;
+  $("#fresh").innerHTML = `<span><span class="dot"></span>${esc(synced)} 업데이트 · ${esc(meta.scope ? `${meta.scope} 방문형` : "매일 자동 갱신")}</span>`;
 }
 
 // ── 필터 UI ──
@@ -555,6 +587,9 @@ function buildFilters() {
 
   const cc = countBy(all, (c) => c.channels.length ? c.channels : []);
   $("#fChannel").innerHTML = CHANNELS.filter((ch) => cc.get(ch)).map((ch) => chipHTML(ch, ch, cc.get(ch), state.channels.has(ch))).join("");
+
+  const pc2 = countBy(all, (c) => c.priceBand);
+  $("#fPrice").innerHTML = PRICE_BANDS.filter((b) => pc2.get(b.id)).map((b) => chipHTML(b.id, b.label, pc2.get(b.id), state.prices.has(b.id))).join("");
 
   const kc = countBy(all, (c) => c.category);
   $("#fCategory").innerHTML = [...kc.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => chipHTML(k, k, n, state.categories.has(k))).join("");
@@ -581,6 +616,7 @@ function toggleSet(set, v) { set.has(v) ? set.delete(v) : set.add(v); }
 
 $("#fType").onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; toggleSet(state.types, b.dataset.v); b.setAttribute("aria-pressed", state.types.has(b.dataset.v)); apply(); };
 $("#fChannel").onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; toggleSet(state.channels, b.dataset.v); b.setAttribute("aria-pressed", state.channels.has(b.dataset.v)); apply(); };
+$("#fPrice").onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; toggleSet(state.prices, b.dataset.v); b.setAttribute("aria-pressed", state.prices.has(b.dataset.v)); apply(); };
 $("#fCategory").onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; toggleSet(state.categories, b.dataset.v); b.setAttribute("aria-pressed", state.categories.has(b.dataset.v)); apply(); };
 $("#fProvince").onclick = (e) => {
   const b = e.target.closest(".chip"); if (!b) return;
@@ -598,7 +634,7 @@ for (const [id, k] of [["#fSoon", "soon"], ["#fEasy", "easy"], ["#fNew", "fresh"
 $("#resetAll").onclick = resetAll;
 function resetAll() {
   Object.assign(state, { q: "", province: "", district: "", soon: false, easy: false, fresh: false });
-  for (const s of [state.types, state.channels, state.categories, state.platformsOff]) s.clear();
+  for (const s of [state.types, state.channels, state.categories, state.prices, state.platformsOff]) s.clear();
   $("#q").value = ""; $("#fSoon").checked = $("#fEasy").checked = $("#fNew").checked = false;
   buildFilters(); apply();
 }
@@ -622,6 +658,7 @@ function apply() {
     if (state.platformsOff.has(c.platform)) return false;
     if (state.types.size && !state.types.has(c.type)) return false;
     if (state.categories.size && !state.categories.has(c.category)) return false;
+    if (state.prices.size && !state.prices.has(c.priceBand)) return false;
     if (state.channels.size && !c.channels.some((ch) => state.channels.has(ch))) return false;
     if (state.province) {
       if (state.province === "?" ? c.province : c.province !== state.province) return false;
@@ -638,6 +675,7 @@ function apply() {
     recent: (a, b) => b.created.localeCompare(a.created) || (a.end || "9999").localeCompare(b.end || "9999"),
     ratio: (a, b) => (a.ratio ?? 1e9) - (b.ratio ?? 1e9) || (a.end || "9999").localeCompare(b.end || "9999"),
     seats: (a, b) => (b.seats ?? 0) - (a.seats ?? 0),
+    price: (a, b) => (b.price ?? -1) - (a.price ?? -1) || (a.end || "9999").localeCompare(b.end || "9999"),
   }[state.sort];
   result.sort(by);
   state.shown = PAGE;
@@ -661,6 +699,7 @@ function renderActive() {
   for (const t of state.types) tags.push(["types:" + t, t]);
   for (const t of state.channels) tags.push(["channels:" + t, t]);
   for (const t of state.categories) tags.push(["categories:" + t, t]);
+  for (const t of state.prices) tags.push(["prices:" + t, PRICE_BANDS.find((b) => b.id === t)?.label || t]);
   const platTotal = $("#fPlatform").querySelectorAll("input").length;
   const platOn = platTotal - state.platformsOff.size;
   if (state.platformsOff.size) tags.push(["plat", platOn === 0 ? "플랫폼 선택 안 함" : platOn <= state.platformsOff.size ? `플랫폼 ${platOn}곳만` : `플랫폼 ${state.platformsOff.size}곳 제외`]);
@@ -891,6 +930,7 @@ async function renderAdmin() {
   $("#adminData").innerHTML =
     `<dt>마지막 업데이트</dt><dd>${esc(when(meta.syncedAt))} (${esc(ago(meta.syncedAt))})</dd>` +
     `<dt>진행 중 캠페인</dt><dd class="num">${fmt(all.length)}개</dd>` +
+    `<dt>수집 범위</dt><dd>${esc(meta.scope || "전국")} (배송형 제외)</dd>` +
     `<dt>원래 사이트 서버</dt><dd>${esc(meta.sourceGeneratedAt ? `${when(meta.sourceGeneratedAt)} 목록` : "응답 없음")}</dd>`;
   const rows = [...meta.sources].sort((a, b) => (b.records || 0) - (a.records || 0));
   const live = countBy(all, (c) => c.platform);
@@ -917,27 +957,29 @@ async function loadRuns() {
   }
 }
 
-$("#runSync").onclick = async () => {
+async function runSync(all) {
   const token = getToken();
   if (!adminUser || !token) { renderAdmin(); return; }
-  $("#runSync").disabled = true;
+  $("#runSync").disabled = $("#runSyncAll").disabled = true;
   $("#runMsg").textContent = "실행 요청 중…";
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/dispatches`, {
       method: "POST",
       headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" },
-      body: JSON.stringify({ ref: "main" }),
+      body: JSON.stringify({ ref: "main", inputs: { all: all ? "true" : "false" } }),
     });
     if (res.status === 401 || res.status === 403 || res.status === 404) throw new Error("토큰이 맞지 않거나 권한이 없어요. Actions 쓰기 권한이 있는지 확인해 주세요.");
     if (res.status !== 204) throw new Error(`GitHub 응답 ${res.status}`);
-    $("#runMsg").textContent = "수집을 시작했어요. 5분쯤 뒤 새로고침하면 반영돼요.";
+    $("#runMsg").textContent = `${all ? "전국" : "서울·경기"} 수집을 시작했어요. 5분쯤 뒤 새로고침하면 반영돼요.`;
     setTimeout(loadRuns, 5000);
   } catch (err) {
     $("#runMsg").textContent = err.message;
   } finally {
-    $("#runSync").disabled = false;
+    $("#runSync").disabled = $("#runSyncAll").disabled = false;
   }
-};
+}
+$("#runSync").onclick = () => runSync(false);
+$("#runSyncAll").onclick = () => runSync(true);
 addEventListener("hashchange", () => { if (location.hash === "#admin") { $("#tab-admin").hidden = false; switchView("admin"); } });
 
 let toastTimer;

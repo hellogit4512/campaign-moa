@@ -2,6 +2,7 @@
 // 모두 공개 목록만 읽고 robots.txt 가 막은 경로는 요청하지 않는다. (스토리앤미디어는 목록 경로가 막혀 있어 제외)
 import { guessArea } from "./regions.mjs";
 import { category as guessCategory } from "./collectors.mjs";
+import { parseReviewnote } from "./reviewnote-parse.mjs";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36 campaign-moa-sync";
 const DELAY_MS = 400;
@@ -266,6 +267,43 @@ async function assaview(today) {
 
 // 디너의여왕 목록에 택배·뷰티의여왕 캠페인도 다 들어 있다. 택배·뷰티를 먼저 읽고, 디너의여왕은 나머지만 둔다
 const queensSeen = new Set();
+// ── 리뷰노트 ── /api/v2/campaigns (robots.txt 는 상세 페이지 /campaigns/ 만 막고 목록 API 는 열어 둠)
+// 한 번에 16개씩, 조건 하나당 100쪽(1,600개)까지만 준다. 그래서
+// 시·도별로 읽고 → 100쪽에 걸리면 구·군별로 → 그래도 걸리면(재택) 정렬 세 가지로 읽어 합친다
+async function reviewnote(today) {
+  const base = "https://www.reviewnote.co.kr";
+  const headers = { "User-Agent": UA, Referer: `${base}/campaigns` };
+  const captured = [];
+  const read = async (city, gugun, sort) => {
+    for (let page = 0; page < 100; page++) {
+      await sleep(800);
+      const url = `${base}/api/v2/campaigns?city=${encodeURIComponent(city)}&gugunSelected=${gugun}&s=${sort}&coord=&limit=16&page=${page}`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+      const body = await res.text();
+      captured.push({ url, body });
+      const j = JSON.parse(body);
+      if (!j.has_more || !j.objects?.length) return false;
+    }
+    return true; // 100쪽 상한에 걸림
+  };
+  const sidos = await (await fetch(`${base}/api/v2/sidos`, { headers })).json();
+  // 배송형(재택)은 빼고, 평소에는 서울·경기만 읽는다 (fetch-campaigns.mjs 가 MOA_REGIONS 를 정함)
+  const want = process.env.MOA_REGIONS && process.env.MOA_REGIONS !== "all" ? new Set(process.env.MOA_REGIONS.split(",")) : null;
+  for (const sido of sidos) {
+    if (sido.name === "재택" || sido.name === "전국") continue;
+    if (want && !want.has(sido.name)) continue;
+    if (!(await read(sido.name, "", "new"))) continue;
+    for (const g of sido.guguns || []) {
+      if (await read(sido.name, g.id, "new")) {
+        await read(sido.name, g.id, "default");
+        await read(sido.name, g.id, "popular");
+      }
+    }
+  }
+  return parseReviewnote(captured, today);
+}
+
 export const MORE_COLLECTORS = {
   tqueens: { name: "택배의여왕", url: "https://tqueens.net/", run: (t) => queens("tqueens", "https://tqueens.net")(t, queensSeen) },
   bqueens: { name: "뷰티의여왕", url: "https://bqueens.net/", run: (t) => queens("bqueens", "https://bqueens.net")(t, queensSeen) },
@@ -275,4 +313,5 @@ export const MORE_COLLECTORS = {
   cometoplay: { name: "놀러와체험단", url: "https://www.cometoplay.kr/item_list.php", run: cometoplay },
   meta: { name: "메타체험단", url: "https://meta-chehumdan.com/campaign_list.php", run: cpList("meta", "https://meta-chehumdan.com") },
   assaview: { name: "아싸뷰", url: "https://assaview.co.kr/campaign_list.php", run: assaview },
+  reviewnote: { name: "리뷰노트", url: "https://www.reviewnote.co.kr/campaigns", run: reviewnote },
 };

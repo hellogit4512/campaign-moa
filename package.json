@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "sync": "node fetch-campaigns.mjs",
+    "sync": "powershell -NoProfile -ExecutionPolicy Bypass -File sync-and-push.ps1",
     "login": "node login-browser.mjs",
-    "import:reviewnote": "node import-reviewnote.mjs"
+    "import:reviewnote": "node import-reviewnote.mjs",
+    "sync:all": "powershell -NoProfile -ExecutionPolicy Bypass -File sync-and-push.ps1 -All"
   },
   "dependencies": {
     "playwright-core": "1.52.0"

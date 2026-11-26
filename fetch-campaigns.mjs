@@ -1,5 +1,6 @@
 // 체험모아 데이터 수집 스크립트 — 하루 한 번 실행
-// 사용법: node fetch-campaigns.mjs
+// 사용법: node fetch-campaigns.mjs          → 서울·경기 방문형 등만 (배송형 제외)
+//         node fetch-campaigns.mjs --all    → 전국 (배송형은 여전히 제외)
 // 결과: data/campaigns.json (마감 지난 캠페인 제외, 화면에 필요한 필드만)
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -12,7 +13,12 @@ const API = "https://campaign-moa.greenorbit3.chatgpt.site/api/campaigns?format=
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "data");
 const REWARD_MAX = 140;
 // 사이트에서 빼는 플랫폼
-const EXCLUDED = new Set(["reviewmaker", "thereview", "reviewnavi", "reviewus", "modumoyeo", "popomon", "storyn", "reviewwave"]);
+const EXCLUDED = new Set(["reviewmaker", "thereview", "reviewnavi", "reviewus", "modumoyeo", "popomon", "storyn", "reviewwave", "assaview", "dailyview", "meta", "blog4"]);
+
+// 평소에는 서울·경기만 담고, --all 이면 전국. 배송형은 언제나 뺀다
+const ALL_REGIONS = process.argv.includes("--all") || process.env.MOA_REGIONS === "all";
+const REGIONS = ALL_REGIONS ? null : new Set(["서울", "경기"]);
+process.env.MOA_REGIONS = ALL_REGIONS ? "all" : "서울,경기"; // 수집기(리뷰노트)도 같은 범위만 요청하게
 
 // KST 기준 오늘 날짜 (YYYY-MM-DD)
 const todayKST = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
@@ -58,6 +64,7 @@ const local = {};
 const localStatus = {};
 const DIRECT = { ...LOCAL_COLLECTORS, ...MORE_COLLECTORS };
 for (const [id, c] of Object.entries(DIRECT)) {
+  if (EXCLUDED.has(id)) continue; // 사이트에서 뺀 플랫폼은 요청도 하지 않는다
   try {
     const list = await c.run(todayKST);
     // 0개면 사이트 구조가 바뀌었을 가능성이 커서 실패로 본다 (지난 결과나 서버 목록을 대신 씀)
@@ -77,8 +84,8 @@ if (!process.env.MOA_NO_LOGIN && existsSync(join(dirname(fileURLToPath(import.me
   Object.assign(local, results);
   for (const [id, s] of Object.entries(status)) localStatus[id] = { ...s, url: LOGIN_COLLECTORS[id].url, name: LOGIN_COLLECTORS[id].name };
 }
-// 리뷰노트는 직접 둘러보며 가져온 목록(npm run import:reviewnote)을 쓴다
-const manual = await readJSON(join(OUT_DIR, "manual", "reviewnote.json"), null);
+// 리뷰노트 자동 수집이 실패한 날만, 직접 둘러보며 가져온 목록(npm run import:reviewnote)을 대신 쓴다
+const manual = local.reviewnote ? null : await readJSON(join(OUT_DIR, "manual", "reviewnote.json"), null);
 if (manual?.items) {
   local.reviewnote = Object.values(manual.items);
   localStatus.reviewnote = { status: "success", records: local.reviewnote.length, lastSyncAt: manual.updatedAt, url: "https://www.reviewnote.co.kr/campaigns", method: "manual", name: "리뷰노트" };
@@ -113,6 +120,8 @@ const seen = new Set();
 const rows = [];
 for (const c of candidates) {
   if (c.endDate && c.endDate < todayKST) continue; // 마감 지난 캠페인 제외
+  if (c.type === "배송" || c.province === "전국") continue; // 배송형 제외
+  if (REGIONS && !REGIONS.has(c.province)) continue; // 평소에는 서울·경기만
   if (seen.has(c.id)) continue;
   seen.add(c.id);
   if (local[c.platform] && !firstSeen[c.id]) firstSeen[c.id] = todayKST;
@@ -142,6 +151,7 @@ const out = {
   syncedAt: new Date().toISOString(),
   sourceGeneratedAt: src.generatedAt,
   today: todayKST,
+  scope: ALL_REGIONS ? "전국" : "서울·경기",
   fields: FIELDS,
   sources,
   rows,
